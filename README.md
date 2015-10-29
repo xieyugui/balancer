@@ -22,3 +22,7 @@
     sets the time during which the specified number of unsuccessful attempts to communicate 
     with the server should happen to consider the server unavailable; and the period of time 
     the server will be considered unavailable. By default, the parameter is set to 10 seconds.
+    
+    
+#For example:
+ map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10
