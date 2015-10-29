@@ -92,7 +92,7 @@ struct BalancerTargetStatus {
 	uint target_id;
 	uint target_down;
 	uint is_down_check;
-	TSCacheLookupResult object_status;
+	int object_status;
 };
 
 BalancerInstance *MakeHashBalancer(const char *);

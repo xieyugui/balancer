@@ -38,9 +38,7 @@ struct RoundRobinBalancer : public BalancerInstance {
 
   typedef std::map<uint, BalancerTarget> MapBalancerTarget;
 
-  RoundRobinBalancer() {
-	  this->targets_s = NULL;
-	  this->targets_b = NULL;
+  RoundRobinBalancer():targets_s(), targets_b() {
 	  this->next = 0;
 	  this->is_balancer = true;
 	  this->peersS_number = 0;
@@ -158,7 +156,7 @@ clear_fails:
   get_healthy_peer(std::vector<BalancerTarget> &targets, time_t now){
 	  BalancerTarget *best , *peer;
 	  int total;
-	  uint i,n;
+	  uint i;
 
 	  best = NULL;
 	  peer = NULL;
@@ -182,7 +180,7 @@ clear_fails:
 		  peer->current_weight += peer->effective_weight;
 		  total += peer->effective_weight;
 
-		  if (peer->effective_weight < peer->weight) {
+		  if (peer->effective_weight < int(peer->weight)) {
 			  peer->effective_weight++;
 		  }
 
@@ -213,6 +211,9 @@ clear_fails:
 	  uint i ;
 	  time_t now;
 	  bool is_backup = false;
+
+	  peer = NULL;
+
 	  t_len = targets_s.size();
 	  for (i =0; i < t_len; i ++) {
 	      if ( targets_s[i].id == target_id){
@@ -224,7 +225,7 @@ clear_fails:
 		  t_len = targets_b.size();
 		  for (i =0; i < t_len; i ++) {
 			  if (targets_b[i].id == target_id) {
-				  peer == &(targets_b[i]);
+				  peer = &(targets_b[i]);
 				  is_backup = true;
 				  break;
 			  }
@@ -291,7 +292,7 @@ clear_fails:
 				  peer->timeout_fails = peer->timeout_fails ? peer->timeout_fails : 1 ;
 				  peer->checked = TShrtime() / TS_HRTIME_SECOND;;
 			  }
-			  TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id ", peer->id);
+			  TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id %d", peer->id);
 		  }
 
 	  }
