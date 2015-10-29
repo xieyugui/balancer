@@ -1,10 +1,9 @@
 # balancer
 具体用法：请参考https://docs.trafficserver.apache.org/en/latest/reference/plugins/balancer.en.html
 
-新增功能：
-    在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout
+在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout 功能：
     backup=number
-      marks the server as a backup server. It will be passed requests when the primary servers are unavailable. by default, 0 (0/1)
+      marks the server as a backup server. It will be passed requests when the primary servers are unavailable. by default, 0    --(0/1)
     weight=number
       sets the weight of the server, by default, 1.
     max_fails=number
