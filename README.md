@@ -4,7 +4,7 @@
 在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout 功能：
 
 ####backup=number
-    marks the server as a backup server. It will be passed requests when the primary servers are unavailable. by default, 0    --(0/1)
+    marks the server as a backup server. It will be passed requests when the primary servers are unavailable.<br\> by default, 0    --(0/1)
 
 ####weight=number
     sets the weight of the server, by default, 1.
