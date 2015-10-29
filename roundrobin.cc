@@ -1,0 +1,335 @@
+/** @file
+ *
+ *  A brief file description
+ *
+ *  @section license License
+ *
+ *  Licensed to the Apache Software Foundation (ASF) under one
+ *  or more contributor license agreements.  See the NOTICE file
+ *  distributed with this work for additional information
+ *  regarding copyright ownership.  The ASF licenses this file
+ *  to you under the Apache License, Version 2.0 (the
+ *  "License"); you may not use this file except in compliance
+ *  with the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+#include "balancer.h"
+#include <stdlib.h>
+#include <string.h>
+#include <map>
+#include <string>
+#include <vector>
+
+#define MAX_FAIL_TIME  100
+#define FAIL_STATUS 500
+#define OS_SINGLE 1
+
+namespace
+{
+struct RoundRobinBalancer : public BalancerInstance {
+
+  typedef std::map<uint, BalancerTarget> MapBalancerTarget;
+
+  RoundRobinBalancer() {
+	  this->targets_s = NULL;
+	  this->targets_b = NULL;
+	  this->next = 0;
+	  this->is_balancer = true;
+	  this->peersS_number = 0;
+	  this->peersB_number = 0;
+  }
+
+  void
+  push_target(BalancerTarget &target)
+  {
+	  if (target.backup) {
+		  this->targets_b.push_back(target);
+		  this->peersB_number++;
+	  } else {
+		  this->targets_s.push_back(target);
+		  this->peersS_number++;
+	  }
+  }
+
+  BalancerTarget & //获取一个后端
+  balance(TSHttpTxn, TSRemapRequestInfo *)
+  {
+    //return this->targets_s[++next % this->targets_s.size()];
+	  BalancerTarget *peer;
+	  time_t now;
+	  now = TShrtime() / TS_HRTIME_SECOND;
+	  //首先给down状态下的服务器一次机会 now - check >= fail_timeout * timeout_fails
+
+	  peer = get_down_timeout_peer(now);
+
+	  if(peer != NULL) {
+		  TSDebug("balancer", "down timeout target is not NULL !  target id-> %d now-> %ld checked-> %ld down-> %d ", peer->id, now, peer->checked, peer->down);
+		  return *peer;
+	  }
+
+	  if ( this->peersS_number == OS_SINGLE) {
+		  if(this->targets_s[0].down) {
+			  goto failed;
+		  }
+		  return this->targets_s[0];
+	  } else {
+		  TSDebug("balancer", "go get_healthy_peer main targets !");
+		  peer = get_healthy_peer(targets_s,now);
+		  if( peer == NULL ) {
+			  goto failed;
+		  }
+		  return *peer;
+	  }
+
+failed:
+	if(!targets_b.empty()) {
+		TSDebug("balancer", "backup targets is not NULL !");
+		if ( peersB_number == OS_SINGLE) {
+			if(targets_b[0].down) {
+				goto clear_fails;
+			}
+			return targets_b[0];
+		} else {
+			TSDebug("balancer", "go get_healthy_peer backup targets !");
+			peer =  get_healthy_peer(targets_b,now);
+			if (peer == NULL ) {
+				goto clear_fails;
+			}
+			return *peer;
+		}
+	}
+
+clear_fails:
+
+	//当所有服务都down的时候，进入轮询模式,(主备都需要轮询,尽快找出健康的os)
+	++next;
+	next = (next == UINT64_MAX ? 0 : next);
+	if (peersB_number && (next % 2)) {//主备选择
+		return this->targets_b[next % this->targets_b.size()];
+	}
+	return this->targets_s[next % this->targets_s.size()];
+
+  }
+
+
+  //获取down状态下，冷却超过 now - check >= fail_timeout * timeout_fails
+  BalancerTarget *
+  get_down_timeout_peer(time_t now) {
+	  uint i;
+	  size_t t_len;
+	  BalancerTarget *peer;
+	  peer = NULL;
+
+	  t_len = targets_s.size();
+	  for (i =0; i < t_len; i ++) {
+		  peer = &(targets_s[i]);
+	      if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
+	    	  peer->checked = now;//更改状态，防止并发
+	    	  return peer;
+	      }
+	   }
+
+	  t_len = targets_b.size();
+	  for (i =0; i < t_len; i ++) {
+		  peer = &(targets_b[i]);
+	      if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
+	    	  peer->checked = now;
+	    	  return peer;
+	      }
+	   }
+
+	  return NULL;
+  }
+
+  bool is_roundrobin_balancer() {
+	  return this->is_balancer;
+  }
+
+  //获取最优的target 此处参考nginx rr 算法
+  BalancerTarget *
+  get_healthy_peer(std::vector<BalancerTarget> &targets, time_t now){
+	  BalancerTarget *best , *peer;
+	  int total;
+	  uint i,n;
+
+	  best = NULL;
+	  peer = NULL;
+	  total = 0;
+
+	  size_t t_len = targets.size();
+
+	  for ( i =0; i < t_len; i ++) {
+
+		  peer = &(targets[i]);
+		  if(peer->down) {
+			  continue;
+		  }
+		  //如果在fail_timeout内 失败次数fails >= max_fails 不可取
+		  if (peer->max_fails
+				  && peer->fails >= peer->max_fails
+				  && now - peer->checked <= peer->fail_timeout){
+			  continue;
+		  }
+
+		  peer->current_weight += peer->effective_weight;
+		  total += peer->effective_weight;
+
+		  if (peer->effective_weight < peer->weight) {
+			  peer->effective_weight++;
+		  }
+
+		  if (best == NULL || peer->current_weight > best->current_weight) {
+			  best = peer;
+		  }
+	   }
+
+	  if (best == NULL ) {
+		  return NULL;
+	  }
+
+	  best->current_weight -= total;
+
+	  if (now - best->checked > best->fail_timeout) {
+		  best->checked = now;
+	  }
+
+	  return best;
+  }
+
+
+  //更改后端状态,后端返回5xx，就认为失败
+  TSReturnCode os_response_back_status(uint target_id, TSHttpStatus status) {
+	  TSDebug("balancer", " os_response_back_status => target_id -> %d, status -> %d ",target_id, status);
+	  BalancerTarget *peer;
+	  size_t t_len;
+	  uint i ;
+	  time_t now;
+	  bool is_backup = false;
+	  t_len = targets_s.size();
+	  for (i =0; i < t_len; i ++) {
+	      if ( targets_s[i].id == target_id){
+	    	  peer = &(targets_s[i]);
+	    	  break;
+	      }
+	   }
+	  if (peer == NULL) {
+		  t_len = targets_b.size();
+		  for (i =0; i < t_len; i ++) {
+			  if (targets_b[i].id == target_id) {
+				  peer == &(targets_b[i]);
+				  is_backup = true;
+				  break;
+			  }
+		   }
+	  }
+
+	  if (peer == NULL )
+		  return TS_SUCCESS;
+
+	  if (status >= FAIL_STATUS) {
+		  now = TShrtime() / TS_HRTIME_SECOND;
+		  if(peer->down) {
+		  //超过错误限制，服务不可用
+			  //peer->fails = 0;
+			  if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) {// 防止并发的情况
+				  if ((is_backup ? peersB_number : peersS_number) > OS_SINGLE) {// 当主或者备只有一个的时候，timeout_fails不在累加
+					  peer->timeout_fails++;
+					  peer->timeout_fails  = peer->timeout_fails > MAX_FAIL_TIME ? MAX_FAIL_TIME : peer->timeout_fails;
+					  peer->checked = now;
+					  peer->accessed = now;
+					  TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",peer->id, peer->timeout_fails);
+				  }
+			  }
+
+		  } else {
+			  peer->fails++;
+			  peer->checked = now;
+			  peer->accessed = now;
+
+			  if (peer->max_fails) {
+				  peer->effective_weight -= peer->weight / peer->max_fails;
+			  }
+
+			  if (peer->fails >= peer->max_fails) {
+				  peer->down = 1;
+				  peer->timeout_fails = 1;
+				  TSDebug("balancer", " os_response_back_status  target id-> %d is down ",peer->id);
+			  }
+		  }
+
+		  if (peer->effective_weight < 0) {
+			  peer->effective_weight = 0;
+		  }
+
+	  } else {
+
+		  if (peer->accessed < peer->checked) {
+			  peer->fails = 0;
+		  }
+
+		  //如果有一次探测正常，就将timeout_fail--, 直到为1，则将该后端服务down状态去掉,后续可以优化一下
+		  if (peer->down) {//可以不用防止并发的情况
+			  if (peer->timeout_fails <= 1) {
+				  peer->down = 0;
+				  peer->timeout_fails = 1;
+				  peer->fails = 0;
+				  peer->effective_weight = peer->weight;
+				  peer->current_weight = 0;
+				  peer->accessed = 0;
+				  peer->checked = 0;
+			  } else {
+				  //当服务器状态从坏到好的时候，下降的基数稍微大点
+				  peer->timeout_fails = peer->timeout_fails / 2;
+				  peer->timeout_fails = peer->timeout_fails ? peer->timeout_fails : 1 ;
+				  peer->checked = TShrtime() / TS_HRTIME_SECOND;;
+			  }
+			  TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id ", peer->id);
+		  }
+
+	  }
+
+	  return TS_SUCCESS;
+  }
+
+  std::vector<BalancerTarget> targets_s; //主线路
+
+  std::vector<BalancerTarget> targets_b; //备用线路
+  uint peersS_number;
+  uint peersB_number;
+  unsigned next;
+  //std::string path;
+  bool is_balancer;
+};
+
+} // namespace
+
+BalancerInstance *
+MakeRoundRobinBalancer(const char *options)
+{
+  RoundRobinBalancer *hash = new RoundRobinBalancer();
+  char *opt;
+  char *tmp;
+
+  TSDebug("balancer", "making round robin balancer with options '%s'", options);
+
+  if (options) {
+    options = tmp = strdup(options);
+    while ((opt = strsep(&tmp, ",")) != NULL) {
+      //hash->path = std::string(opt);
+      //TSDebug("balancer", "making round robin balancer with path options '%s'", opt);
+      TSError("[balancer] Ignoring invalid round robin field '%s'", opt);
+    }
+
+    free((void *)options);
+  }
+
+  return hash;
+}
