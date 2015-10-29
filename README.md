@@ -25,5 +25,4 @@
     
     
 #For example:
- map http://foo.com http://foo.com \
-    @plugin=balancer.so @pparam=--policy=balancer @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10
+ map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=balancer @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10
