@@ -364,8 +364,10 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,
 		targetstatus->object_status = TS_CACHE_LOOKUP_MISS;
 		if (target.down ) {
 			time_t now = TShrtime() / TS_HRTIME_SECOND;
-			if ((now - target.checked) > (target.timeout_fails * target.fail_timeout))
+			if ((now - target.accessed) > (target.timeout_fails * target.fail_timeout)) {
+				TSDebug("balancer", "is down check accessed %ld! ",target.accessed);
 				targetstatus->is_down_check = true;
+			}
 		}
 		if (NULL == (txn_contp = TSContCreate((TSEventFunc) balancer_handler, NULL))) {
 			TSError("[%s] TSContCreate(): failed to create the transaction handler continuation.", PLUGIN_NAME);

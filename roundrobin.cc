@@ -108,6 +108,7 @@ failed:
 clear_fails:
 
 	//当所有服务都down的时候，进入轮询模式,(主备都需要轮询,尽快找出健康的os)
+    //该状态下的target 都不会回源（除了hit_stale）
 	++next;
 	next = (next == UINT64_MAX ? 0 : next);
 	if (peersB_number && (next % 2)) {//主备选择
@@ -130,8 +131,8 @@ clear_fails:
 	  for (i =0; i < t_len; i ++) {
 		  peer = &(targets_s[i]);
 	      if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
-	    	  peer->checked = now;//更改状态，防止并发
-	    	  return peer;
+	    	  	  peer->checked = now;
+	    	  	  return peer;
 	      }
 	   }
 
@@ -139,8 +140,8 @@ clear_fails:
 	  for (i =0; i < t_len; i ++) {
 		  peer = &(targets_b[i]);
 	      if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
-	    	  peer->checked = now;
-	    	  return peer;
+				  peer->checked = now;
+				  return peer;
 	      }
 	   }
 
@@ -235,26 +236,25 @@ clear_fails:
 	  if (peer == NULL )
 		  return TS_SUCCESS;
 
+	  TSDebug("balancer", "os_response_back_status check time %ld accessed time %ld! ",peer->checked, peer->accessed);
+
 	  if (status >= FAIL_STATUS) {
 		  now = TShrtime() / TS_HRTIME_SECOND;
+		  peer->checked = now;
+		  peer->accessed = now;
 		  if(peer->down) {
 		  //超过错误限制，服务不可用
 			  //peer->fails = 0;
-			  if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) {// 防止并发的情况
+			  if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) {// 防止并发的情况TODO
 				  if ((is_backup ? peersB_number : peersS_number) > OS_SINGLE) {// 当主或者备只有一个的时候，timeout_fails不在累加
 					  peer->timeout_fails++;
 					  peer->timeout_fails  = peer->timeout_fails > MAX_FAIL_TIME ? MAX_FAIL_TIME : peer->timeout_fails;
-					  peer->checked = now;
-					  peer->accessed = now;
 					  TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",peer->id, peer->timeout_fails);
 				  }
 			  }
 
 		  } else {
 			  peer->fails++;
-			  peer->checked = now;
-			  peer->accessed = now;
-
 			  if (peer->max_fails) {
 				  peer->effective_weight -= peer->weight / peer->max_fails;
 			  }
@@ -288,9 +288,11 @@ clear_fails:
 				  peer->checked = 0;
 			  } else {
 				  //当服务器状态从坏到好的时候，下降的基数稍微大点
+				  now = TShrtime() / TS_HRTIME_SECOND;
 				  peer->timeout_fails = peer->timeout_fails / 2;
 				  peer->timeout_fails = peer->timeout_fails ? peer->timeout_fails : 1 ;
-				  peer->checked = TShrtime() / TS_HRTIME_SECOND;;
+				  peer->checked = now;
+				  peer->accessed = now; //因为peer 状态还是down ，所以这里accessed 还需要赋值
 			  }
 			  TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id %d", peer->id);
 		  }
