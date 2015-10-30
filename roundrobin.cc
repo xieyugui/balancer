@@ -107,6 +107,7 @@ failed:
 
 clear_fails:
 
+	clean_peer_status();
 	//当所有服务都down的时候，进入轮询模式,(主备都需要轮询,尽快找出健康的os)
     //该状态下的target 都不会回源（除了hit_stale）
 	++next;
@@ -116,6 +117,24 @@ clear_fails:
 	}
 	return this->targets_s[next % this->targets_s.size()];
 
+  }
+
+  //清除peer 的fails 和 timeout_fails状态
+  void clean_peer_status(){
+	  uint i;
+	  size_t t_len;
+
+	  t_len = targets_s.size();
+	  for (i =0; i < t_len; i ++) {
+		  targets_s[i].fails = 0;
+		  targets_s[i].timeout_fails = 1;
+	   }
+
+	  t_len = targets_b.size();
+	  for (i =0; i < t_len; i ++) {
+		  targets_b[i].fails = 0;
+		  targets_b[i].timeout_fails = 1;
+	   }
   }
 
 
@@ -211,7 +230,7 @@ clear_fails:
 	  size_t t_len;
 	  uint i ;
 	  time_t now;
-	  bool is_backup = false;
+	  //bool is_backup = false;
 
 	  peer = NULL;
 
@@ -227,7 +246,7 @@ clear_fails:
 		  for (i =0; i < t_len; i ++) {
 			  if (targets_b[i].id == target_id) {
 				  peer = &(targets_b[i]);
-				  is_backup = true;
+				  //is_backup = true;
 				  break;
 			  }
 		   }
@@ -244,14 +263,11 @@ clear_fails:
 		  peer->accessed = now;
 		  if(peer->down) {
 		  //超过错误限制，服务不可用
-			  //peer->fails = 0;
-			  if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) {// 防止并发的情况TODO
-				  if ((is_backup ? peersB_number : peersS_number) > OS_SINGLE) {// 当主或者备只有一个的时候，timeout_fails不在累加
-					  peer->timeout_fails++;
-					  peer->timeout_fails  = peer->timeout_fails > MAX_FAIL_TIME ? MAX_FAIL_TIME : peer->timeout_fails;
-					  TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",peer->id, peer->timeout_fails);
-				  }
-			  }
+			  //if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) { 不需要在验证
+			  peer->timeout_fails++;
+			  peer->timeout_fails  = peer->timeout_fails > MAX_FAIL_TIME ? MAX_FAIL_TIME : peer->timeout_fails;
+			  TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",peer->id, peer->timeout_fails);
+			  //}
 
 		  } else {
 			  peer->fails++;
