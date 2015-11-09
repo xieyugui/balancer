@@ -28,5 +28,5 @@
  map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10
  
 #Add path:
- map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10 <\br>
+ map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=one.bar.com:80,0,1,1,10 @pparam=two.bar.com,0,1,1,10 <br />
  if client request http://cdnxxx.com/1.jpg then ATS will back to the source server visit http://cdnxxx.com/0/1.jpg
