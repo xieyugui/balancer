@@ -81,7 +81,9 @@ struct BalancerInstance {
   virtual ~BalancerInstance() {}
   virtual void push_target(BalancerTarget &) = 0;
   virtual BalancerTarget &balance(TSHttpTxn, TSRemapRequestInfo *) = 0;
+  virtual const char *get_path() = 0;
   virtual bool is_roundrobin_balancer() = 0;
+  virtual void data_destroy() = 0;
   virtual TSReturnCode os_response_back_status(uint target_id, TSHttpStatus status) = 0;
 };
 

@@ -149,6 +149,7 @@ struct HashBalancer : public BalancerInstance {
 
   HashBalancer() {
 	  this->is_balancer = false;
+	  this->path = NULL;
 	  this->hash_parts.push_back(HashTxnUrl);
   }
 
@@ -198,8 +199,20 @@ struct HashBalancer : public BalancerInstance {
 	  return TS_SUCCESS;
   }
 
+  const char *get_path() {
+    return this->path;
+  }
+
+  void data_destroy() {
+	  if(this->path != NULL){
+		  free((char *)this->path);
+		  this->path = NULL;
+	  }
+  }
+
   hash_ring_type hash_ring;
   hash_part_type hash_parts;
+  char *path;
   bool is_balancer;
 };
 

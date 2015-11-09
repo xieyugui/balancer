@@ -224,6 +224,9 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	 }
 
 	 TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_RESPONSE_HDR_HOOK, contp);
+	  if(targetstatus->binstance->get_path() != NULL) {
+		  TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_REQUEST_HDR_HOOK, contp);
+	  }
 	 TSDebug("balancer", "add TS_HTTP_SEND_RESPONSE_HDR_HOOK");
 	 //if (obj_status != TS_CACHE_LOOKUP_HIT_STALE && obj_status != TS_CACHE_LOOKUP_HIT_FRESH) {
 	 //hit stale 情况 主要是考虑，当文件过期的时候，还可以返回过期文件，而不是直接返回502
@@ -235,6 +238,66 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	 TSDebug("balancer", "end look_up_handle");
 	 return TS_ERROR;
 }
+
+/**
+ * add by daemon.xie
+ * reason:  we need modify origin request URL's path, if we need.
+ **/
+static TSReturnCode
+rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
+{
+
+	if ( NULL == targetstatus && targetstatus->binstance) {
+		return TS_ERROR;
+	}
+
+	TSMBuffer bufp;
+	TSMLoc hdr_loc,url_loc;
+	int len;
+	const char *old_path;
+	const char *add_path = targetstatus->binstance->get_path();
+
+	TSDebug("balancer", "do TS_HTTP_POST_REMAP_HOOK event '%s' ",add_path);
+	if (add_path == NULL) {
+		return TS_SUCCESS;
+	}
+	if(TSHttpTxnServerReqGet(txnp,&bufp,&hdr_loc)  != TS_SUCCESS ) {
+		TSError("couldn't retrieve request header");
+		TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
+		return TS_SUCCESS;
+	}
+
+	if (TSHttpHdrUrlGet(bufp, hdr_loc, &url_loc) != TS_SUCCESS) {
+		TSError("couldn't retrieve request url");
+        TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+        TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
+        return TS_SUCCESS;
+     }
+
+     old_path = TSUrlPathGet(bufp, url_loc, &len);
+     if (!old_path) {
+    	 	 TSError("couldn't retrieve request path");
+         TSHandleMLocRelease(bufp, hdr_loc, url_loc);
+         TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+         TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
+         return TS_SUCCESS;
+     }
+     TSDebug("balancer", "get old path %s", old_path);
+     int add_len = strlen(add_path);
+     int new_len = len + add_len;
+     char new_path[new_len];
+     memcpy(new_path, add_path, add_len);
+     memcpy(&new_path[add_len], old_path , len);
+     if (TSUrlPathSet(bufp, url_loc, new_path, new_len) != TS_SUCCESS) {
+             TSError("balancer: Set new Path field '%.*s'", new_len,new_path);
+     }
+     TSDebug("balancer", "new path '%.*s'", new_len, new_path);
+     TSHandleMLocRelease(bufp, hdr_loc, url_loc);
+     TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+
+     return TS_SUCCESS;
+}
+
 
 /**
  * Transaction event handler.
@@ -255,6 +318,9 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 			TSDebug("balancer", "change to TS_EVENT_HTTP_ERROR");
 			reenable = TS_EVENT_HTTP_ERROR;
 		}
+		break;
+	case TS_EVENT_HTTP_SEND_REQUEST_HDR:
+		rewrite_send_request_path(txnp, targetstatus);
 		break;
 	case TS_EVENT_HTTP_SEND_RESPONSE_HDR://放在lookup 里添加
 		send_response_handle(txnp, targetstatus);
@@ -335,6 +401,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 }
 
 void TSRemapDeleteInstance(void *instance) {
+	((BalancerInstance *) instance)->data_destroy();
 	delete (BalancerInstance *) instance;
 }
 
