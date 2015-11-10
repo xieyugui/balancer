@@ -33,7 +33,6 @@
 #include "ts/ink_inet.h"
 
 #define PLUGIN_NAME "balancer"
-#define MC_HTTP_STATUS_BAD_GATEWAY 552
 
 // The policy type is the first comma-separated token.
 static BalancerInstance *
@@ -164,8 +163,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp,
 	//回源check 包括down check
 	if ( targetstatus->target_id >= 0  && (!targetstatus->target_down or (targetstatus->target_down && targetstatus->is_down_check) )) {
 		//当源站没有正常返回的情况下，都会返回ts_error
-//		status = TS_HTTP_STATUS_BAD_GATEWAY;
-		status = MC_HTTP_STATUS_BAD_GATEWAY; //自定义code
+		status = TS_HTTP_STATUS_BAD_GATEWAY;
 		//TODO 如果是回源304 check 的情况该如何处理？
 		//当前的ats ，当文件过期，正好源站不通的时候，返回旧文件，当源站有任务返回的时候，ats 将会返回该内容
 		//TSHttpTxnServerRespNoStoreSet(txn, 1);
