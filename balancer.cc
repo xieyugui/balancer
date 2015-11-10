@@ -33,6 +33,7 @@
 #include "ts/ink_inet.h"
 
 #define PLUGIN_NAME "balancer"
+#define MC_HTTP_STATUS_BAD_GATEWAY 552
 
 // The policy type is the first comma-separated token.
 static BalancerInstance *
@@ -57,7 +58,7 @@ static BalancerTarget MakeBalancerTarget(const char *strval) {
 	target.weight = 1;
 	target.effective_weight = 1;
 	target.current_weight = 0;
-	target.max_fails = 1;
+	target.max_fails = 3;
 	target.fail_timeout = 10;
 	target.down = 0;
 	target.backup = 0;
@@ -86,7 +87,7 @@ static BalancerTarget MakeBalancerTarget(const char *strval) {
 		//modify by daemon.xie
 		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
 		// 192.168.8.7:80,0,1,1,10   如果只有ip 后面几个参数都是默认值
-		int target_array[4] = { 0, 1, 1, 10 };
+		int target_array[4] = { 0, 1, 3, 10 };
 		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
 		uint s_count = 0;
 		const char *comma = strrchr(strval, ':');
@@ -163,7 +164,8 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp,
 	//回源check 包括down check
 	if ( targetstatus->target_id >= 0  && (!targetstatus->target_down or (targetstatus->target_down && targetstatus->is_down_check) )) {
 		//当源站没有正常返回的情况下，都会返回ts_error
-		status = TS_HTTP_STATUS_BAD_GATEWAY;
+//		status = TS_HTTP_STATUS_BAD_GATEWAY;
+		status = MC_HTTP_STATUS_BAD_GATEWAY; //自定义code
 		//TODO 如果是回源304 check 的情况该如何处理？
 		//当前的ats ，当文件过期，正好源站不通的时候，返回旧文件，当源站有任务返回的时候，ats 将会返回该内容
 		//TSHttpTxnServerRespNoStoreSet(txn, 1);
@@ -191,7 +193,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp,
 
 		buf = (char *) TSmalloc(100);
 
-		sprintf(buf, "502 Source station temporarily unavailable!\n");
+		sprintf(buf, "552 Source station temporarily unavailable!\n");
 
 		TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
 
@@ -289,7 +291,7 @@ rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
      memcpy(new_path, add_path, add_len);
      memcpy(&new_path[add_len], old_path , len);
      if (TSUrlPathSet(bufp, url_loc, new_path, new_len) != TS_SUCCESS) {
-             TSError("balancer: Set new Path field '%.*s'", new_len,new_path);
+             TSError("balancer: Set new Path field '%.*s'", new_len, new_path);
      }
      TSDebug("balancer", "new path '%.*s'", new_len, new_path);
      TSHandleMLocRelease(bufp, hdr_loc, url_loc);
