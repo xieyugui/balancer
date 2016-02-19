@@ -60,22 +60,6 @@ struct BalancerTarget {
   time_t checked;
 };
 
-//typedef struct BalancerTargetPeersS BalancerTargetPeersB;
-//
-//struct BalancerTargetPeersS {
-//	uint number; //队列中服务器数量,为1表示后端服务器总共一台，用于优化，此时不需要再做选择
-//	uint total_weight;//所有服务器总权重
-////	unsigned single; //为1表示后端服务器总共一台，用于优化，此时不需要再做选择
-////	unsigned weighted; //为1表示总的权重值等于服务器数量
-////
-////	std::string name;
-////
-////	BalancerTargetPeersT *next;//后备服务器挂载在这个字段下
-////	BalancerTarget peer[1];
-//
-//};
-
-
 
 struct BalancerInstance {
   virtual ~BalancerInstance() {}

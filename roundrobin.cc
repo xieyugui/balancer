@@ -67,9 +67,8 @@ struct RoundRobinBalancer: public BalancerInstance {
 		peer = get_down_timeout_peer(now);
 
 		if (peer != NULL) {
-			TSDebug("balancer",
-					"down timeout target is not NULL !  target id-> %d now-> %ld checked-> %ld down-> %d ",
-					peer->id, now, peer->checked, peer->down);
+//			TSDebug("balancer","down timeout target is not NULL !  target id-> %d now-> %ld checked-> %ld down-> %d ",
+//					peer->id, now, peer->checked, peer->down);
 			return *peer;
 		}
 
@@ -79,7 +78,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 			}
 			return this->targets_s[0];
 		} else {
-			TSDebug("balancer", "go get_healthy_peer main targets !");
+//			TSDebug("balancer", "go get_healthy_peer main targets !");
 			peer = get_healthy_peer(targets_s, now);
 			if (peer == NULL) {
 				goto failed;
@@ -87,15 +86,16 @@ struct RoundRobinBalancer: public BalancerInstance {
 			return *peer;
 		}
 
-		failed: if (!targets_b.empty()) {
-			TSDebug("balancer", "backup targets is not NULL !");
+	failed:
+		if (!targets_b.empty()) {
+//			TSDebug("balancer", "backup targets is not NULL !");
 			if (peersB_number == OS_SINGLE) {
 				if (targets_b[0].down) {
 					goto clear_fails;
 				}
 				return targets_b[0];
 			} else {
-				TSDebug("balancer", "go get_healthy_peer backup targets !");
+//				TSDebug("balancer", "go get_healthy_peer backup targets !");
 				peer = get_healthy_peer(targets_b, now);
 				if (peer == NULL) {
 					goto clear_fails;
@@ -104,8 +104,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 			}
 		}
 
-		clear_fails:
-
+	clear_fails:
 		clean_peer_status();
 		//当所有服务都down的时候，进入轮询模式,(主备都需要轮询,尽快找出健康的os)
 		//该状态下的target 都不会回源（除了hit_stale）
@@ -114,8 +113,12 @@ struct RoundRobinBalancer: public BalancerInstance {
 		if (peersB_number && (next % 2)) {    //主备选择
 			return this->targets_b[next % this->targets_b.size()];
 		}
-		return this->targets_s[next % this->targets_s.size()];
 
+		//防止主不存在
+		if(this->peersS_number)
+			return this->targets_s[next % this->targets_s.size()];
+		else
+			return this->targets_b[next % this->targets_b.size()];
 	}
 
 	//清除peer 的fails 和 timeout_fails状态
@@ -147,9 +150,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 		t_len = targets_s.size();
 		for (i = 0; i < t_len; i++) {
 			peer = &(targets_s[i]);
-			if (peer->down
-					&& (now - peer->checked)
-							> (peer->timeout_fails * peer->fail_timeout)) {
+			if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
 				peer->checked = now;
 				return peer;
 			}
@@ -158,9 +159,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 		t_len = targets_b.size();
 		for (i = 0; i < t_len; i++) {
 			peer = &(targets_b[i]);
-			if (peer->down
-					&& (now - peer->checked)
-							> (peer->timeout_fails * peer->fail_timeout)) {
+			if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
 				peer->checked = now;
 				return peer;
 			}
@@ -225,14 +224,11 @@ struct RoundRobinBalancer: public BalancerInstance {
 
 	//更改后端状态,后端返回5xx，就认为失败
 	TSReturnCode os_response_back_status(uint target_id, TSHttpStatus status) {
-		TSDebug("balancer",
-				" os_response_back_status => target_id -> %d, status -> %d ",
-				target_id, status);
+//		TSDebug("balancer"," os_response_back_status => target_id -> %d, status -> %d ",target_id, status);
 		BalancerTarget *peer;
 		size_t t_len;
 		uint i;
 		time_t now;
-		//bool is_backup = false;
 
 		peer = NULL;
 
@@ -248,7 +244,6 @@ struct RoundRobinBalancer: public BalancerInstance {
 			for (i = 0; i < t_len; i++) {
 				if (targets_b[i].id == target_id) {
 					peer = &(targets_b[i]);
-					//is_backup = true;
 					break;
 				}
 			}
@@ -257,25 +252,17 @@ struct RoundRobinBalancer: public BalancerInstance {
 		if (peer == NULL)
 			return TS_SUCCESS;
 
-		TSDebug("balancer",
-				"os_response_back_status check time %ld accessed time %ld! ",
-				peer->checked, peer->accessed);
+//		TSDebug("balancer", "os_response_back_status check time %ld accessed time %ld! ",	peer->checked, peer->accessed);
 
 		if (status >= FAIL_STATUS) {
 			now = TShrtime() / TS_HRTIME_SECOND;
 			peer->checked = now;
 			peer->accessed = now;
 			if (peer->down) {
-				//超过错误限制，服务不可用
-				//if (  (now - peer->accessed) >= (peer->fail_timeout * peer->timeout_fails)) { 不需要在验证
 				peer->timeout_fails++;
-				peer->timeout_fails =
-						peer->timeout_fails > MAX_FAIL_TIME ?
-								MAX_FAIL_TIME : peer->timeout_fails;
-				TSDebug("balancer",
-						" os_response_back_status  target id-> %d is down again timeout_fails-> %d ",
-						peer->id, peer->timeout_fails);
-				//}
+				peer->timeout_fails = peer->timeout_fails > MAX_FAIL_TIME ? MAX_FAIL_TIME : peer->timeout_fails;
+//				TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",
+//						peer->id, peer->timeout_fails);
 
 			} else {
 				peer->fails++;
@@ -286,9 +273,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 				if (peer->fails >= peer->max_fails) {
 					peer->down = 1;
 					peer->timeout_fails = 1;
-					TSDebug("balancer",
-							" os_response_back_status  target id-> %d is down ",
-							peer->id);
+//					TSDebug("balancer", " os_response_back_status  target id-> %d is down ", peer->id);
 				}
 			}
 
@@ -321,9 +306,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 					peer->checked = now;
 					peer->accessed = now; //因为peer 状态还是down ，所以这里accessed 还需要赋值
 				}
-				TSDebug("balancer",
-						" os_response_back_status target is down but return is OK, target->id %d",
-						peer->id);
+//				TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id %d", peer->id);
 			}
 
 		}
@@ -361,14 +344,11 @@ MakeRoundRobinBalancer(const char *options) {
 
 	if (options) {
 		if (strchr(options, ',')) {
-			TSError("[balancer] Ignoring invalid round robin field '%s'",
-					options);
+			TSError("[balancer] Ignoring invalid round robin field '%s'", options);
 		}
 
 		hash->path = strdup(options);
-		TSDebug("balancer",
-				"making round robin balancer with path options '%s'",
-				hash->path);
+		TSDebug("balancer","making round robin balancer with path options '%s'", hash->path);
 //    options = tmp = strdup(options);
 //    while ((opt = strsep(&tmp, ",")) != NULL) {
 //
