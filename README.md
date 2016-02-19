@@ -1,7 +1,7 @@
 # balancer
 具体用法：请参考https://docs.trafficserver.apache.org/en/latest/reference/plugins/balancer.en.html 
 
-在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout ,以及add path功能：
+在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout ,以及add path和开启https回源的功能：
 
 ####backup=number
     marks the server as a backup server. It will be passed requests when the primary servers are 
@@ -25,7 +25,7 @@
     
     
 #For example:
- map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10
+ map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https  @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10
  
 #Add path:
  map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10 <br />
