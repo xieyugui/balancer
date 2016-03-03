@@ -59,8 +59,8 @@ static BalancerTarget MakeBalancerTarget(const char *strval) {
 	target.weight = 1;
 	target.effective_weight = 1;
 	target.current_weight = 0;
-	target.max_fails = 3;
-	target.fail_timeout = 10;
+	target.max_fails = 10;
+	target.fail_timeout = 30;
 	target.down = 0;
 	target.backup = 0;
 	target.fails = 0;
@@ -87,7 +87,7 @@ static BalancerTarget MakeBalancerTarget(const char *strval) {
 	} else {
 		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
 		// 192.168.8.7:80,0,1,1,10   如果只有ip 后面几个参数都是默认值
-		int target_array[4] = { 0, 1, 3, 10 };
+		int target_array[4] = { 0, 1, 10, 30 };
 		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
 		uint s_count = 0;
 		const char *comma = strrchr(strval, ':');
@@ -155,8 +155,8 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 
 	//回源check 包括down check
 	if ( targetstatus->target_id >= 0  && (!targetstatus->target_down or (targetstatus->target_down && targetstatus->is_down_check) )) {
-		//当源站没有正常返回的情况下，都会返回ts_error
-		status = TS_HTTP_STATUS_BAD_GATEWAY;
+		//当源站没有正常返回的情况下，都会返回ts_error  自定义code
+		status = TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE;
 		//TODO 如果是回源304 check 的情况该如何处理？
 		//当前的ats ，当文件过期，正好源站不通的时候，返回旧文件，当源站有任务返回的时候，ats 将会返回该内容
 		//TSHttpTxnServerRespNoStoreSet(txn, 1);
@@ -175,13 +175,13 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 		}
 
 		TSDebug("balancer", " target.id == -1 or target_down  == 1!");
-		TSHttpHdrStatusSet(bufp, hdr_loc, TS_HTTP_STATUS_BAD_GATEWAY);
-		TSHttpHdrReasonSet(bufp, hdr_loc,TSHttpHdrReasonLookup(TS_HTTP_STATUS_BAD_GATEWAY),
-				strlen(TSHttpHdrReasonLookup(TS_HTTP_STATUS_BAD_GATEWAY)));
+		TSHttpHdrStatusSet(bufp, hdr_loc, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
+		TSHttpHdrReasonSet(bufp, hdr_loc,TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE),
+				strlen(TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE)));
 
 		buf = (char *) TSmalloc(100);
 
-		sprintf(buf, "502 Source station temporarily unavailable!\n");
+		sprintf(buf, "553 Source Service Unavailable!\n");
 
 		TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
 		//自己会释放点buf,不需要TSfree?
@@ -225,7 +225,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 		  return TS_ERROR;
 		}
 		TSUrlSchemeSet(req_bufp, url_loc,TS_URL_SCHEME_HTTPS,TS_URL_LEN_HTTPS);
-		TSUrlPortSet(req_bufp, url_loc, 443);
+//		TSUrlPortSet(req_bufp, url_loc, 443);＃这里不设置
 		TSHandleMLocRelease(req_bufp, req_loc, url_loc);
 		TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
 	 }
