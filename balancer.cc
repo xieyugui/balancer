@@ -145,18 +145,22 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 	TSMLoc hdr_loc;
 	char *buf;
 
-	if ( NULL == targetstatus && targetstatus->binstance) {
-		return TS_ERROR;
-	}
-
-	if (targetstatus->object_status == TS_CACHE_LOOKUP_HIT_FRESH) {
+	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
 		return TS_SUCCESS;
 	}
 
+	if(targetstatus && targetstatus->object_status < TS_CACHE_LOOKUP_MISS) {
+		return TS_SUCCESS;
+	}
+// do't need
+//	if (targetstatus->object_status == TS_CACHE_LOOKUP_HIT_FRESH) {
+//		return TS_ERROR;
+//	}
+
 	//回源check 包括down check
 	if ( targetstatus->target_id >= 0  && (!targetstatus->target_down or (targetstatus->target_down && targetstatus->is_down_check) )) {
-		//当源站没有正常返回的情况下，都会返回ts_error  自定义code
-		status = TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE;
+		//当源站没有正常返回的情况下，都会返回ts_error
+		status = TS_HTTP_STATUS_NONE;
 		//TODO 如果是回源304 check 的情况该如何处理？
 		//当前的ats ，当文件过期，正好源站不通的时候，返回旧文件，当源站有任务返回的时候，ats 将会返回该内容
 		//TSHttpTxnServerRespNoStoreSet(txn, 1);
@@ -165,27 +169,28 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 			TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
 		}
 
-		TSDebug("balancer", "handle_response (): Get status %d, do something.",status);
-		targetstatus->binstance->os_response_back_status(targetstatus->target_id, status);
-
-
-	} else if(targetstatus->object_status != TS_CACHE_LOOKUP_HIT_STALE){//排除hit_stale情况, 走ats 默认配置流程，返回源站信息or 返回旧数据
-		if (TSHttpTxnClientRespGet(txnp, &bufp, &hdr_loc) == TS_ERROR) {
-			return TS_ERROR;
+		if(status > TS_HTTP_STATUS_NONE && targetstatus && targetstatus->binstance) {
+			TSDebug("balancer", "handle_response (): Get status %d, do something.",status);
+			targetstatus->binstance->os_response_back_status(targetstatus->target_id, status);
 		}
 
-		TSDebug("balancer", " target.id == -1 or target_down  == 1!");
-		TSHttpHdrStatusSet(bufp, hdr_loc, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
-		TSHttpHdrReasonSet(bufp, hdr_loc,TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE),
-				strlen(TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE)));
+	} else {
+		if (TSHttpTxnClientRespGet(txnp, &bufp, &hdr_loc) != TS_ERROR) {
+			TSDebug("balancer", " target.id == -1 or target_down  == 1!");
+			TSHttpHdrStatusSet(bufp, hdr_loc, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
+			TSHttpHdrReasonSet(bufp, hdr_loc,TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE),
+					strlen(TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE)));
 
-		buf = (char *) TSmalloc(100);
 
-		sprintf(buf, "553 Source Service Unavailable!\n");
+			buf = (char *) TSmalloc(100);
 
-		TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
-		//自己会释放点buf,不需要TSfree?
-		TSHttpTxnErrorBodySet(txnp, buf, strlen(buf), NULL);
+			sprintf(buf, "553 Source Service Unavailable!\n");
+
+			TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
+			//自己会释放点buf,不需要TSfree?
+			TSHttpTxnErrorBodySet(txnp, buf, strlen(buf), NULL);
+		}
+		return TS_ERROR;
 	}
 
 	return TS_SUCCESS;
@@ -195,7 +200,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTargetStatus *targetstatus) {
 
 	int obj_status;
-	if ( NULL == targetstatus && targetstatus->binstance) {
+	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
 		return TS_ERROR;
 	}
 
@@ -203,9 +208,10 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	   TSError("[%s] Couldn't get cache status of object", __FUNCTION__);
 	    return TS_ERROR;
 	 }
+	 TSDebug(PLUGIN_NAME, "look_up_handle  obj_status = %d\n",obj_status);
 	 targetstatus->object_status = obj_status;
-	 //排除 hit_fresh 的情况，不需要回源
-	 if (obj_status == TS_CACHE_LOOKUP_HIT_FRESH ) {
+	 //排除 hit_fresh 和 hit_stale的情况，不需要回源
+	 if (obj_status == TS_CACHE_LOOKUP_HIT_FRESH) {
 		 return TS_ERROR;
 	 }
 
@@ -230,19 +236,20 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 		TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
 	 }
 
-	 TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_RESPONSE_HDR_HOOK, contp);
-	  if(targetstatus->binstance->get_path() != NULL) {
+	  if(targetstatus && targetstatus->binstance && targetstatus->binstance->get_path() != NULL) {
 		  TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_REQUEST_HDR_HOOK, contp);
 	  }
-	 TSDebug("balancer", "add TS_HTTP_SEND_RESPONSE_HDR_HOOK");
-	 //if (obj_status != TS_CACHE_LOOKUP_HIT_STALE && obj_status != TS_CACHE_LOOKUP_HIT_FRESH) {
-	 //hit stale 情况 主要是考虑，当文件过期的时候，还可以返回过期文件，而不是直接返回502
-	 //这里只考虑500以上的code
-     if (obj_status != TS_CACHE_LOOKUP_HIT_STALE) {
-		TSDebug("balancer", "obj_status != TS_CACHE_LOOKUP_HIT_STALE");
-		if (targetstatus->target_down && !targetstatus->is_down_check)
-			return TS_SUCCESS;
+
+	 //排除 hit_fresh 和 hit_stale的情况，不需要添加TS_HTTP_SEND_RESPONSE_HDR_HOOK钩子
+	 if (obj_status == TS_CACHE_LOOKUP_HIT_STALE) {
+		 return TS_ERROR;
 	 }
+
+	 TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_RESPONSE_HDR_HOOK, contp);
+	 TSDebug("balancer", "add TS_HTTP_SEND_RESPONSE_HDR_HOOK");
+
+	if (targetstatus && targetstatus->target_down && !targetstatus->is_down_check)
+		return TS_SUCCESS;
 
 	 return TS_ERROR;
 }
@@ -255,7 +262,7 @@ static TSReturnCode
 rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 {
 
-	if ( NULL == targetstatus && targetstatus->binstance) {
+	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
 		return TS_ERROR;
 	}
 
@@ -330,10 +337,14 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 		rewrite_send_request_path(txnp, targetstatus);
 		break;
 	case TS_EVENT_HTTP_SEND_RESPONSE_HDR://放在lookup 里添加
-		send_response_handle(txnp, targetstatus);
+		if (send_response_handle(txnp, targetstatus) == TS_ERROR) {
+			reenable = TS_EVENT_HTTP_ERROR;
+		}
 		break;
 	case TS_EVENT_HTTP_TXN_CLOSE:
 		if (targetstatus) {
+			if(targetstatus->binstance)
+				targetstatus->binstance = NULL;
 			TSfree(targetstatus);
 		}
 		TSContDestroy(contp);
@@ -430,6 +441,9 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 	}
 
 	BalancerInstance *balancer = (BalancerInstance *) instance;
+	if (balancer == NULL) {
+		return TSREMAP_NO_REMAP;
+	}
 	const BalancerTarget &target = balancer->balance(txn, rri);
 
 	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target.name.data(),target.name.size());
@@ -446,7 +460,7 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 		targetstatus->target_id = target.id;
 		targetstatus->target_down = target.down;
 		targetstatus->is_down_check = false;//是否需要down check
-		targetstatus->object_status = TS_CACHE_LOOKUP_MISS;
+		targetstatus->object_status = -1;// < TS_CACHE_LOOKUP_MISS
 
 		if (target.down ) {
 			time_t now = TShrtime() / TS_HRTIME_SECOND;

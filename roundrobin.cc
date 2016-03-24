@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#define MAX_FAIL_TIME  100
+#define MAX_FAIL_TIME  30
 #define FAIL_STATUS 500
 #define OS_SINGLE 1
 
@@ -231,15 +231,17 @@ struct RoundRobinBalancer: public BalancerInstance {
 		time_t now;
 
 		peer = NULL;
+		t_len = 0;
 
-		t_len = targets_s.size();
+		if (!targets_s.empty())
+			t_len = targets_s.size();
 		for (i = 0; i < t_len; i++) {
 			if (targets_s[i].id == target_id) {
 				peer = &(targets_s[i]);
 				break;
 			}
 		}
-		if (peer == NULL) {
+		if (peer == NULL && !targets_b.empty()) {
 			t_len = targets_b.size();
 			for (i = 0; i < t_len; i++) {
 				if (targets_b[i].id == target_id) {
@@ -310,7 +312,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 			}
 
 		}
-
+		peer = NULL;
 		return TS_SUCCESS;
 	}
 
