@@ -36,6 +36,8 @@
 
 static bool need_https_backend = false;
 
+static BalancerInstance *balancer = NULL;
+
 // The policy type is the first comma-separated token.
 static BalancerInstance *
 MakeBalancerInstance(const char *opt) {
@@ -143,19 +145,14 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 
 	TSMBuffer bufp;
 	TSMLoc hdr_loc;
-	char *buf;
 
-	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
+	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_SUCCESS;
 	}
 
 	if(targetstatus && targetstatus->object_status < TS_CACHE_LOOKUP_MISS) {
 		return TS_SUCCESS;
 	}
-// do't need
-//	if (targetstatus->object_status == TS_CACHE_LOOKUP_HIT_FRESH) {
-//		return TS_ERROR;
-//	}
 
 	//回源check 包括down check
 	if ( targetstatus->target_id >= 0  && (!targetstatus->target_down or (targetstatus->target_down && targetstatus->is_down_check) )) {
@@ -169,27 +166,16 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 			TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
 		}
 
-		if(status > TS_HTTP_STATUS_NONE && targetstatus && targetstatus->binstance) {
+		if(status > TS_HTTP_STATUS_NONE && targetstatus && balancer) {
 			TSDebug("balancer", "handle_response (): Get status %d, do something.",status);
-			targetstatus->binstance->os_response_back_status(targetstatus->target_id, status);
+			balancer->os_response_back_status(targetstatus->target_id, status);
 		}
 
 	} else {
-		if (TSHttpTxnClientRespGet(txnp, &bufp, &hdr_loc) != TS_ERROR) {
-			TSDebug("balancer", " target.id == -1 or target_down  == 1!");
-			TSHttpHdrStatusSet(bufp, hdr_loc, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
-			TSHttpHdrReasonSet(bufp, hdr_loc,TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE),
-					strlen(TSHttpHdrReasonLookup(TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE)));
+		TSDebug("balancer", " target.id == -1 or target_down  == 1!");
+		TSHttpTxnSetHttpRetStatus(txnp, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
 
-
-			buf = (char *) TSmalloc(100);
-
-			sprintf(buf, "553 Source Service Unavailable!\n");
-
-			TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
-			//自己会释放点buf,不需要TSfree?
-			TSHttpTxnErrorBodySet(txnp, buf, strlen(buf), NULL);
-		}
+		TSHttpTxnErrorBodySet(txnp, TSstrdup("553 Source Service Unavailable!"), sizeof("553 Source Service Unavailable!") - 1, NULL);
 		return TS_ERROR;
 	}
 
@@ -200,7 +186,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTargetStatus *targetstatus) {
 
 	int obj_status;
-	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
+	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
 
@@ -236,7 +222,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 		TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
 	 }
 
-	  if(targetstatus && targetstatus->binstance && targetstatus->binstance->get_path() != NULL) {
+	  if(balancer && balancer->get_path() != NULL) {
 		  TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_REQUEST_HDR_HOOK, contp);
 	  }
 
@@ -262,7 +248,7 @@ static TSReturnCode
 rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 {
 
-	if ( NULL == targetstatus || targetstatus->binstance == NULL) {
+	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
 
@@ -270,7 +256,7 @@ rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 	TSMLoc hdr_loc,url_loc;
 	int len;
 	const char *old_path;
-	const char *add_path = targetstatus->binstance->get_path();
+	const char *add_path = balancer->get_path();
 
 //	TSDebug("balancer", "do TS_HTTP_POST_REMAP_HOOK event '%s' ",add_path);
 	if (add_path == NULL) {
@@ -342,11 +328,8 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 		}
 		break;
 	case TS_EVENT_HTTP_TXN_CLOSE:
-		if (targetstatus) {
-			if(targetstatus->binstance)
-				targetstatus->binstance = NULL;
+		if (targetstatus)
 			TSfree(targetstatus);
-		}
 		TSContDestroy(contp);
 		break;
 	default:
@@ -363,7 +346,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 	static const struct option longopt[] = { { const_cast<char *>("policy"),
 			required_argument, 0, 'p' }, { const_cast<char *>("https"),no_argument, 0, 's' }, { 0, 0, 0, 0 } };
 
-	BalancerInstance *balancer = NULL;
+//	BalancerInstance *balancer = NULL;
 
 	// The first two arguments are the "from" and "to" URL string. We need to
 	// skip them, but we also require that there be an option to masquerade as
@@ -426,7 +409,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 }
 
 void TSRemapDeleteInstance(void *instance) {
-	((BalancerInstance *) instance)->data_destroy();
+	TSDebug("balancer", "Delete Instance BalancerInstance!");
 	delete (BalancerInstance *) instance;
 }
 
@@ -440,7 +423,6 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 		return TSREMAP_NO_REMAP;
 	}
 
-	BalancerInstance *balancer = (BalancerInstance *) instance;
 	if (balancer == NULL) {
 		return TSREMAP_NO_REMAP;
 	}
@@ -456,7 +438,6 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 
 		BalancerTargetStatus *targetstatus;
 		targetstatus = (BalancerTargetStatus *) TSmalloc(sizeof(BalancerTargetStatus));
-		targetstatus->binstance = balancer;
 		targetstatus->target_id = target.id;
 		targetstatus->target_down = target.down;
 		targetstatus->is_down_check = false;//是否需要down check

@@ -46,6 +46,14 @@ struct RoundRobinBalancer: public BalancerInstance {
 		this->path = NULL;
 	}
 
+	~RoundRobinBalancer() {
+		if (this->path != NULL) {
+			free((char *) this->path);
+			this->path = NULL;
+		}
+		TSDebug("balancer","----------~RoundRobinBalancer---------------");
+	}
+
 	void push_target(BalancerTarget &target) {
 		if (target.backup) {
 			this->targets_b.push_back(target);
@@ -58,11 +66,9 @@ struct RoundRobinBalancer: public BalancerInstance {
 
 	BalancerTarget & //获取一个后端
 	balance(TSHttpTxn, TSRemapRequestInfo *) {
-		//return this->targets_s[++next % this->targets_s.size()];
 		BalancerTarget *peer;
 		time_t now;
 		now = TShrtime() / TS_HRTIME_SECOND;
-		//首先给down状态下的服务器一次机会 now - check >= fail_timeout * timeout_fails
 
 		peer = get_down_timeout_peer(now);
 
@@ -139,33 +145,42 @@ struct RoundRobinBalancer: public BalancerInstance {
 		}
 	}
 
-	//获取down状态下，冷却超过 now - check >= fail_timeout * timeout_fails
-	BalancerTarget *
-	get_down_timeout_peer(time_t now) {
+	//首先给down状态下的服务器一次机会 now - check >= fail_timeout * timeout_fails
+	//如果主还有存活的，就不用考虑down状态下冷却超时的备用，只有当主都不存活，才考虑
+	BalancerTarget *get_down_timeout_peer(time_t now) {
 		uint i;
 		size_t t_len;
-		BalancerTarget *peer;
+		BalancerTarget *peer, *check_peer;
 		peer = NULL;
+		check_peer = NULL;
 
 		t_len = targets_s.size();
 		for (i = 0; i < t_len; i++) {
 			peer = &(targets_s[i]);
+			if(!peer->down)
+				return NULL;
 			if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
 				peer->checked = now;
-				return peer;
+				check_peer = peer;
 			}
 		}
+		if (check_peer)
+			return check_peer;
 
+		peer = NULL;
+		check_peer = NULL;
 		t_len = targets_b.size();
 		for (i = 0; i < t_len; i++) {
 			peer = &(targets_b[i]);
+			if(!peer->down)
+				return NULL;
 			if (peer->down && (now - peer->checked) > (peer->timeout_fails * peer->fail_timeout)) {
 				peer->checked = now;
-				return peer;
+				check_peer = peer;
 			}
 		}
 
-		return NULL;
+		return check_peer;
 	}
 
 	bool is_roundrobin_balancer() {
@@ -303,8 +318,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 					//当服务器状态从坏到好的时候，下降的基数稍微大点
 					now = TShrtime() / TS_HRTIME_SECOND;
 					peer->timeout_fails = peer->timeout_fails / 2;
-					peer->timeout_fails =
-							peer->timeout_fails ? peer->timeout_fails : 1;
+					peer->timeout_fails = peer->timeout_fails ? peer->timeout_fails : 1;
 					peer->checked = now;
 					peer->accessed = now; //因为peer 状态还是down ，所以这里accessed 还需要赋值
 				}
@@ -318,13 +332,6 @@ struct RoundRobinBalancer: public BalancerInstance {
 
 	const char *get_path() {
 		return this->path;
-	}
-
-	void data_destroy() {
-		if (this->path != NULL) {
-			free((char *) this->path);
-			this->path = NULL;
-		}
 	}
 
 	std::vector<BalancerTarget> targets_s; //主线路

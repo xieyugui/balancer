@@ -153,6 +153,13 @@ struct HashBalancer : public BalancerInstance {
 	  this->hash_parts.push_back(HashTxnUrl);
   }
 
+  ~HashBalancer() {
+	  if(this->path != NULL){
+		  free((char *)this->path);
+		  this->path = NULL;
+	  }
+  }
+
   void
   push_target(BalancerTarget &target)
   {
@@ -201,13 +208,6 @@ struct HashBalancer : public BalancerInstance {
 
   const char *get_path() {
     return this->path;
-  }
-
-  void data_destroy() {
-	  if(this->path != NULL){
-		  free((char *)this->path);
-		  this->path = NULL;
-	  }
   }
 
   hash_ring_type hash_ring;
