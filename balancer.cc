@@ -88,8 +88,8 @@ static BalancerTarget MakeBalancerTarget(const char *strval) {
 
 	} else {
 		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
-		// 192.168.8.7:80,0,1,1,10   如果只有ip 后面几个参数都是默认值
-		int target_array[4] = { 0, 1, 10, 30 };
+		// 192.168.8.7:80,0,1,10,10   如果只有ip 后面几个参数都是默认值
+		int target_array[4] = { 0, 1, 10, 10 };
 		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
 		uint s_count = 0;
 		const char *comma = strrchr(strval, ':');
