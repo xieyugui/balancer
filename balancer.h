@@ -68,6 +68,8 @@ struct BalancerInstance {
   virtual const char *get_path() = 0;
   virtual bool is_roundrobin_balancer() = 0;
   virtual TSReturnCode os_response_back_status(uint target_id, TSHttpStatus status) = 0;
+  virtual void set_https_backend_tag(bool) = 0;
+  virtual bool get_https_backend_tag() = 0;
 };
 
 //用于存储target 状态，以备源站返回code 的做健康负载处理，new  free

@@ -34,9 +34,7 @@
 
 #define PLUGIN_NAME "balancer"
 
-static bool need_https_backend = false;
-
-static BalancerInstance *balancer = NULL;
+static int arg_index = 0;
 
 // The policy type is the first comma-separated token.
 static BalancerInstance *
@@ -145,7 +143,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 
 	TSMBuffer bufp;
 	TSMLoc hdr_loc;
-
+	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_SUCCESS;
 	}
@@ -186,6 +184,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTargetStatus *targetstatus) {
 
 	int obj_status;
+	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
@@ -202,7 +201,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	 }
 
 	 //修改成https请求
-	 if(need_https_backend) {
+	 if(balancer && balancer->get_https_backend_tag()) {
 		TSMBuffer req_bufp;
 		TSMLoc req_loc;
 		TSMLoc url_loc;
@@ -247,7 +246,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 static TSReturnCode
 rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 {
-
+	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
@@ -346,7 +345,8 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 	static const struct option longopt[] = { { const_cast<char *>("policy"),
 			required_argument, 0, 'p' }, { const_cast<char *>("https"),no_argument, 0, 's' }, { 0, 0, 0, 0 } };
 
-//	BalancerInstance *balancer = NULL;
+	BalancerInstance *balancer = NULL;
+	bool need_https_backend = false;
 
 	// The first two arguments are the "from" and "to" URL string. We need to
 	// skip them, but we also require that there be an option to masquerade as
@@ -384,6 +384,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 		return TS_ERROR;
 	}
 
+	balancer->set_https_backend_tag(need_https_backend);
 	// Pick up the remaining options as balance targets.
 	uint s_count = 0;
 	int i;
@@ -403,14 +404,14 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 		TSDebug("balancer", "no target have create!");
 		return TS_ERROR;
 	}
-
 	*instance = balancer;
 	return TS_SUCCESS;
 }
 
 void TSRemapDeleteInstance(void *instance) {
 	TSDebug("balancer", "Delete Instance BalancerInstance!");
-	delete (BalancerInstance *) instance;
+	if(instance != NULL)
+		delete static_cast<BalancerInstance *>(instance);
 }
 
 TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *rri) {
@@ -422,14 +423,14 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 	if (method == TS_HTTP_METHOD_PURGE) {
 		return TSREMAP_NO_REMAP;
 	}
-
+	BalancerInstance *balancer = (BalancerInstance *) instance;
 	if (balancer == NULL) {
 		return TSREMAP_NO_REMAP;
 	}
 	const BalancerTarget &target = balancer->balance(txn, rri);
 
 	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target.name.data(),target.name.size());
-
+	TSDebug("balancer","balancer target.name -> %s target.port -> %d ", target.name.c_str(), target.port);
 	if (target.port) {
 		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target.port);
 	}
@@ -456,7 +457,8 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 				TSfree(targetstatus);
 		} else {
 			TSContDataSet(txn_contp, targetstatus);
-
+			TSHttpTxnArgSet((TSHttpTxn)txn, arg_index, (void *) balancer);
+			//void *data = TSHttpTxnArgGet((TSHttpTxn)rh, arg_index);
 			TSHttpTxnHookAdd(txn, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, txn_contp);
 			TSHttpTxnHookAdd(txn, TS_HTTP_TXN_CLOSE_HOOK, txn_contp);
 		}

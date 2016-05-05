@@ -44,6 +44,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 		this->peersS_number = 0;
 		this->peersB_number = 0;
 		this->path = NULL;
+		this->need_https_backend = false;
 	}
 
 	~RoundRobinBalancer() {
@@ -334,6 +335,14 @@ struct RoundRobinBalancer: public BalancerInstance {
 		return this->path;
 	}
 
+	void set_https_backend_tag(bool is_need) {
+		this->need_https_backend = is_need;
+	}
+
+	bool get_https_backend_tag() {
+		return this->need_https_backend;
+	}
+
 	std::vector<BalancerTarget> targets_s; //主线路
 
 	std::vector<BalancerTarget> targets_b; //备用线路
@@ -341,6 +350,7 @@ struct RoundRobinBalancer: public BalancerInstance {
 	uint peersB_number;
 	unsigned next;
 	char *path;bool is_balancer;
+	bool need_https_backend;
 };
 
 } // namespace

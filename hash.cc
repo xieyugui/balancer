@@ -151,6 +151,7 @@ struct HashBalancer : public BalancerInstance {
 	  this->is_balancer = false;
 	  this->path = NULL;
 	  this->hash_parts.push_back(HashTxnUrl);
+	  this->need_https_backend = false;
   }
 
   ~HashBalancer() {
@@ -210,10 +211,19 @@ struct HashBalancer : public BalancerInstance {
     return this->path;
   }
 
+	void set_https_backend_tag(bool is_need) {
+		this->need_https_backend = is_need;
+	}
+
+	bool get_https_backend_tag() {
+		return this->need_https_backend;
+	}
+
   hash_ring_type hash_ring;
   hash_part_type hash_parts;
   char *path;
   bool is_balancer;
+  bool need_https_backend;
 };
 
 } // namespace
