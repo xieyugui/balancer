@@ -22,6 +22,7 @@
  */
 
 #include "balancer.h"
+#include "roundrobin.h"
 #include <ts/remap.h>
 #include <stdio.h>
 #include <getopt.h>
@@ -30,108 +31,33 @@
 #include <iterator>
 
 // Using ink_inet API is cheating, but I was too lazy to write new IPv6 address parsing routines ;)
-#include "ts/ink_inet.h"
 
 #define PLUGIN_NAME "balancer"
 
 static int arg_index = 0;
 
+
 // The policy type is the first comma-separated token.
-static BalancerInstance *
+static RoundRobinBalancer *
 MakeBalancerInstance(const char *opt) {
 	const char *end = strchr(opt, ',');
 	size_t len = end ? std::distance(opt, end) : strlen(opt);
 
-	if (len == lengthof("hash") && strncmp(opt, "hash", len) == 0) {
-		return MakeHashBalancer(end ? end + 1 : NULL);
-	} else if (len == lengthof("roundrobin")
-			&& strncmp(opt, "roundrobin", len) == 0) {
-		return MakeRoundRobinBalancer(end ? end + 1 : NULL);
+	if (len == lengthof("roundrobin") && strncmp(opt, "roundrobin", len) == 0) {
+		RoundRobinBalancer *roundrobin = new RoundRobinBalancer();
+		roundrobin->hold();
+		const char *options = end ? end + 1 : NULL;
+		if (options) {
+			if (strchr(options, ',')) {
+				TSError("[balancer] Ignoring invalid round robin field '%s'", options);
+			}
+			roundrobin->set_path(strdup(options));
+		}
+		return roundrobin;
 	} else {
 		TSError("[balancer] Invalid balancing policy '%.*s'", (int) len, opt);
 		return NULL;
 	}
-}
-
-static BalancerTarget MakeBalancerTarget(const char *strval) {
-	BalancerTarget target = BalancerTarget();
-
-	target.weight = 1;
-	target.effective_weight = 1;
-	target.current_weight = 0;
-	target.max_fails = 10;
-	target.fail_timeout = 30;
-	target.down = 0;
-	target.backup = 0;
-	target.fails = 0;
-	target.accessed = 0;
-	target.checked = 0;
-	target.timeout_fails = 1;
-
-	union {
-		struct sockaddr_storage storage;
-		struct sockaddr sa;
-	} address;
-
-	memset(&address, 0, sizeof(address));
-
-	// First, check whether we have an address literal.
-	TSDebug("balancer", "start check argv");
-	const char *is_address_literal = strrchr(strval, ',');
-	if ( NULL == is_address_literal && ats_ip_pton(strval, &address.sa) == 0) {
-		char namebuf[INET6_ADDRSTRLEN];
-
-		target.port = ats_ip_port_host_order(&address.sa);
-		target.name = ats_ip_ntop(&address.sa, namebuf, sizeof(namebuf));
-
-	} else {
-		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
-		// 192.168.8.7:80,0,1,10,20   如果只有ip 后面几个参数都是默认值
-		int target_array[4] = { 0, 1, 10, 20 };
-		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
-		uint s_count = 0;
-		const char *comma = strrchr(strval, ':');
-		if (comma) {
-			target.name = std::string(strval, (comma - strval));
-			target.port = strtol(comma + 1, NULL, 10);
-
-			comma = strchr(comma + 1, ',');
-			while ( NULL != comma && s_count <= a_count) {
-				target_array[s_count] = strtol(comma + 1, NULL, 10);
-				s_count += 1;
-				comma = strchr(comma + 1, ',');
-			}
-		} else {
-			comma = strchr(strval, ',');
-			if (comma) {
-				target.name = std::string(strval, (comma - strval));
-				while ( NULL != comma && s_count <= a_count) {
-					target_array[s_count] = strtol(comma + 1, NULL, 10);
-					s_count += 1;
-					comma = strchr(comma + 1, ',');
-				}
-			} else {
-				target.name = strval;
-			}
-		}
-		target.backup = target_array[0];
-		target.weight = target_array[1];
-		target.max_fails = target_array[2];
-		target.fail_timeout = target_array[3];
-	}
-
-	if (target.port > INT16_MAX) {
-		TSError("[balancer] Ignoring invalid port number for target '%s'",
-				strval);
-		target.port = 0;
-	}
-
-	TSDebug("balancer",
-			"balancer target -> %s  target.name -> %s target.port -> %d target.backup ->%d target.weight -> %d target.max_fails ->%d target.fail_timeout -> %ld",
-			strval, target.name.c_str(), target.port, target.backup,
-			target.weight, target.max_fails, target.fail_timeout);
-
-	return target;
 }
 
 TSReturnCode TSRemapInit(TSRemapInterface * /* api */, char * /* errbuf */, int /* bufsz */) {
@@ -143,7 +69,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 
 	TSMBuffer bufp;
 	TSMLoc hdr_loc;
-	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
+	RoundRobinBalancer *balancer = (RoundRobinBalancer *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_SUCCESS;
 	}
@@ -184,7 +110,7 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTargetStatus *targetstatus) {
 
 	int obj_status;
-	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
+	RoundRobinBalancer *balancer = (RoundRobinBalancer *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
@@ -216,7 +142,6 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 		  return TS_ERROR;
 		}
 		TSUrlSchemeSet(req_bufp, url_loc,TS_URL_SCHEME_HTTPS,TS_URL_LEN_HTTPS);
-//		TSUrlPortSet(req_bufp, url_loc, 443);＃这里不设置
 		TSHandleMLocRelease(req_bufp, req_loc, url_loc);
 		TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
 	 }
@@ -246,7 +171,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 static TSReturnCode
 rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 {
-	BalancerInstance *balancer = (BalancerInstance *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
+	RoundRobinBalancer *balancer = (RoundRobinBalancer *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	if ( NULL == targetstatus || balancer == NULL) {
 		return TS_ERROR;
 	}
@@ -306,13 +231,10 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 	TSHttpTxn txnp = static_cast<TSHttpTxn>(edata);
 	BalancerTargetStatus *targetstatus;
 	targetstatus = (struct BalancerTargetStatus *) TSContDataGet(contp);
-
+	RoundRobinBalancer *balancer = (RoundRobinBalancer *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
 	TSEvent reenable = TS_EVENT_HTTP_CONTINUE;
 
 	switch (event) {
-//  case TS_EVENT_HTTP_READ_RESPONSE_HDR:  当源站不通的时候，不触发该事件
-//    handle_server_read_response(txnp, targetstatus);
-//    break;
 	case TS_EVENT_HTTP_CACHE_LOOKUP_COMPLETE:
 		if (look_up_handle(contp, txnp, targetstatus) == TS_SUCCESS) {
 			reenable = TS_EVENT_HTTP_ERROR;
@@ -327,6 +249,8 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 		}
 		break;
 	case TS_EVENT_HTTP_TXN_CLOSE:
+		if (balancer)
+			balancer->release();
 		if (targetstatus)
 			TSfree(targetstatus);
 		TSContDestroy(contp);
@@ -345,7 +269,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 	static const struct option longopt[] = { { const_cast<char *>("policy"),
 			required_argument, 0, 'p' }, { const_cast<char *>("https"),no_argument, 0, 's' }, { 0, 0, 0, 0 } };
 
-	BalancerInstance *balancer = NULL;
+	RoundRobinBalancer *balancer = NULL;
 	bool need_https_backend = false;
 
 	// The first two arguments are the "from" and "to" URL string. We need to
@@ -389,14 +313,14 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 	uint s_count = 0;
 	int i;
 	for (i = optind; i < argc; ++i) {
-		BalancerTarget target = MakeBalancerTarget(argv[i]);
-		target.id = s_count;
+		BalancerTarget *target = balancer->MakeBalancerTarget(argv[i]);
+		target->id = s_count;
 		s_count ++;
 		balancer->push_target(target);
-		if (target.port) {
-			TSDebug("balancer", "added target -> %s:%u", target.name.c_str(), target.port);
+		if (target->port) {
+			TSDebug("balancer", "added target -> %s:%u", target->name.c_str(), target->port);
 		} else {
-			TSDebug("balancer", "added target -> %s", target.name.c_str());
+			TSDebug("balancer", "added target -> %s", target->name.c_str());
 		}
 	}
 
@@ -410,8 +334,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 
 void TSRemapDeleteInstance(void *instance) {
 	TSDebug("balancer", "Delete Instance BalancerInstance!");
-	if(instance != NULL)
-		delete static_cast<BalancerInstance *>(instance);
+	static_cast<RoundRobinBalancer *>(instance)->release();
 }
 
 TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *rri) {
@@ -423,46 +346,42 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 	if (method == TS_HTTP_METHOD_PURGE) {
 		return TSREMAP_NO_REMAP;
 	}
-	BalancerInstance *balancer = (BalancerInstance *) instance;
+	RoundRobinBalancer *balancer = (RoundRobinBalancer *) instance;
 	if (balancer == NULL) {
 		return TSREMAP_NO_REMAP;
 	}
-	const BalancerTarget &target = balancer->balance(txn, rri);
+	balancer->hold();
+	const BalancerTarget *target = balancer->balance(txn, rri);
 
-	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target.name.data(),target.name.size());
-	TSDebug("balancer","balancer target.name -> %s target.port -> %d ", target.name.c_str(), target.port);
-	if (target.port) {
-		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target.port);
+	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target->name.data(),target->name.size());
+	TSDebug("balancer","balancer target.name -> %s target.port -> %d ", target->name.c_str(), target->port);
+	if (target->port) {
+		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target->port);
 	}
 
-	if (balancer->is_roundrobin_balancer()) {
+	BalancerTargetStatus *targetstatus;
+	targetstatus = (BalancerTargetStatus *) TSmalloc(sizeof(BalancerTargetStatus));
+	targetstatus->target_id = target->id;
+	targetstatus->target_down = target->down;
+	targetstatus->is_down_check = false;//是否需要down check
+	targetstatus->object_status = -1;// < TS_CACHE_LOOKUP_MISS
 
-		BalancerTargetStatus *targetstatus;
-		targetstatus = (BalancerTargetStatus *) TSmalloc(sizeof(BalancerTargetStatus));
-		targetstatus->target_id = target.id;
-		targetstatus->target_down = target.down;
-		targetstatus->is_down_check = false;//是否需要down check
-		targetstatus->object_status = -1;// < TS_CACHE_LOOKUP_MISS
-
-		if (target.down ) {
-			time_t now = TShrtime() / TS_HRTIME_SECOND;
-			if ((now - target.accessed) > (target.timeout_fails * target.fail_timeout)) {
-				targetstatus->is_down_check = true;
-			}
+	if (target->down ) {
+		time_t now = TShrtime() / TS_HRTIME_SECOND;
+		if ((now - target->accessed) > (target->timeout_fails * target->fail_timeout)) {
+			targetstatus->is_down_check = true;
 		}
+	}
 
-		if (NULL == (txn_contp = TSContCreate((TSEventFunc) balancer_handler, NULL))) {
-			TSError("[%s] TSContCreate(): failed to create the transaction handler continuation.", PLUGIN_NAME);
-			if (targetstatus)
-				TSfree(targetstatus);
-		} else {
-			TSContDataSet(txn_contp, targetstatus);
-			TSHttpTxnArgSet((TSHttpTxn)txn, arg_index, (void *) balancer);
-			//void *data = TSHttpTxnArgGet((TSHttpTxn)rh, arg_index);
-			TSHttpTxnHookAdd(txn, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, txn_contp);
-			TSHttpTxnHookAdd(txn, TS_HTTP_TXN_CLOSE_HOOK, txn_contp);
-		}
-
+	if (NULL == (txn_contp = TSContCreate((TSEventFunc) balancer_handler, NULL))) {
+		TSError("[%s] TSContCreate(): failed to create the transaction handler continuation.", PLUGIN_NAME);
+		balancer->release();
+		TSfree(targetstatus);
+	} else {
+		TSContDataSet(txn_contp, targetstatus);
+		TSHttpTxnArgSet((TSHttpTxn)txn, arg_index, (void *) balancer);
+		TSHttpTxnHookAdd(txn, TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, txn_contp);
+		TSHttpTxnHookAdd(txn, TS_HTTP_TXN_CLOSE_HOOK, txn_contp);
 	}
 
 	return TSREMAP_DID_REMAP;
