@@ -62,12 +62,12 @@ struct BalancerTarget {
   time_t accessed; //检测失败时间，用于计算超时
   time_t checked;
 
-  BalancerTarget():id(0),name(NULL),port(0),weight(1),effective_weight(1),current_weight(0),max_fails(10),
+  BalancerTarget():id(0),name(""),port(0),weight(1),effective_weight(1),current_weight(0),max_fails(10),
 		  fail_timeout(30),down(0),backup(0),fails(0),timeout_fails(1),accessed(0),checked(0){
   }
 
   ~BalancerTarget() {
-	  name = NULL;
+	  name = "";
   }
 };
 
