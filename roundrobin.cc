@@ -53,7 +53,7 @@ RoundRobinBalancer::~RoundRobinBalancer() {
 			delete (targets_b[i]);
 		}
 	}
-	TSDebug("balancer", "----------~RoundRobinBalancer---------------");
+	TSDebug(PLUGIN_NAME, "----------~RoundRobinBalancer---------------");
 }
 
 void RoundRobinBalancer::push_target(BalancerTarget *target) {
@@ -75,7 +75,7 @@ BalancerTarget * RoundRobinBalancer::balance(TSHttpTxn, TSRemapRequestInfo *) {
 	peer = get_down_timeout_peer(now);
 
 	if (peer != NULL) {
-//			TSDebug("balancer","down timeout target is not NULL !  target id-> %d now-> %ld checked-> %ld down-> %d ",
+//			TSDebug(PLUGIN_NAME,"down timeout target is not NULL !  target id-> %d now-> %ld checked-> %ld down-> %d ",
 //					peer->id, now, peer->checked, peer->down);
 		return peer;
 	}
@@ -86,7 +86,7 @@ BalancerTarget * RoundRobinBalancer::balance(TSHttpTxn, TSRemapRequestInfo *) {
 		}
 		return this->targets_s[0];
 	} else {
-//			TSDebug("balancer", "go get_healthy_peer main targets !");
+//			TSDebug(PLUGIN_NAME, "go get_healthy_peer main targets !");
 		peer = get_healthy_peer(targets_s, now);
 		if (peer == NULL) {
 			goto failed;
@@ -95,14 +95,14 @@ BalancerTarget * RoundRobinBalancer::balance(TSHttpTxn, TSRemapRequestInfo *) {
 	}
 
 	failed: if (!targets_b.empty()) {
-//			TSDebug("balancer", "backup targets is not NULL !");
+//			TSDebug(PLUGIN_NAME, "backup targets is not NULL !");
 		if (peersB_number == OS_SINGLE) {
 			if (targets_b[0]->down) {
 				goto clear_fails;
 			}
 			return targets_b[0];
 		} else {
-//				TSDebug("balancer", "go get_healthy_peer backup targets !");
+//				TSDebug(PLUGIN_NAME, "go get_healthy_peer backup targets !");
 			peer = get_healthy_peer(targets_b, now);
 			if (peer == NULL) {
 				goto clear_fails;
@@ -216,7 +216,7 @@ BalancerTarget * RoundRobinBalancer::get_healthy_peer(
 		}
 
 		if (best == NULL
-				|| targets[i]->current_weight > targets[i]->current_weight) {
+				|| targets[i]->current_weight > best->current_weight) {
 			best = targets[i];
 		}
 	}
@@ -237,7 +237,7 @@ BalancerTarget * RoundRobinBalancer::get_healthy_peer(
 //更改后端状态,后端返回5xx，就认为失败
 TSReturnCode RoundRobinBalancer::os_response_back_status(uint target_id,
 		TSHttpStatus status) {
-//		TSDebug("balancer"," os_response_back_status => target_id -> %d, status -> %d ",target_id, status);
+//		TSDebug(PLUGIN_NAME," os_response_back_status => target_id -> %d, status -> %d ",target_id, status);
 	BalancerTarget *peer;
 	size_t t_len;
 	uint i;
@@ -267,7 +267,7 @@ TSReturnCode RoundRobinBalancer::os_response_back_status(uint target_id,
 	if (peer == NULL)
 		return TS_SUCCESS;
 
-//		TSDebug("balancer", "os_response_back_status check time %ld accessed time %ld! ",	peer->checked, peer->accessed);
+//		TSDebug(PLUGIN_NAME, "os_response_back_status check time %ld accessed time %ld! ",	peer->checked, peer->accessed);
 
 	if (status >= FAIL_STATUS) {
 		now = TShrtime() / TS_HRTIME_SECOND;
@@ -278,7 +278,7 @@ TSReturnCode RoundRobinBalancer::os_response_back_status(uint target_id,
 			peer->timeout_fails =
 					peer->timeout_fails > MAX_FAIL_TIME ?
 							MAX_FAIL_TIME : peer->timeout_fails;
-//				TSDebug("balancer", " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",
+//				TSDebug(PLUGIN_NAME, " os_response_back_status  target id-> %d is down again timeout_fails-> %d ",
 //						peer->id, peer->timeout_fails);
 
 		} else {
@@ -290,7 +290,7 @@ TSReturnCode RoundRobinBalancer::os_response_back_status(uint target_id,
 			if (peer->fails >= peer->max_fails) {
 				peer->down = 1;
 				peer->timeout_fails = 1;
-//					TSDebug("balancer", " os_response_back_status  target id-> %d is down ", peer->id);
+//					TSDebug(PLUGIN_NAME, " os_response_back_status  target id-> %d is down ", peer->id);
 			}
 		}
 
@@ -323,7 +323,7 @@ TSReturnCode RoundRobinBalancer::os_response_back_status(uint target_id,
 				peer->checked = now;
 				peer->accessed = now; //因为peer 状态还是down ，所以这里accessed 还需要赋值
 			}
-//				TSDebug("balancer", " os_response_back_status target is down but return is OK, target->id %d", peer->id);
+//				TSDebug(PLUGIN_NAME, " os_response_back_status target is down but return is OK, target->id %d", peer->id);
 		}
 
 	}
@@ -386,12 +386,11 @@ BalancerTarget *RoundRobinBalancer::MakeBalancerTarget(const char *strval) {
 	}
 
 	if (target->port > INT16_MAX) {
-		TSError("[balancer] Ignoring invalid port number for target '%s'",
-				strval);
+		TSError("[%s] Ignoring invalid port number for target '%s'",PLUGIN_NAME,strval);
 		target->port = 0;
 	}
 
-	TSDebug("balancer",
+	TSDebug(PLUGIN_NAME,
 			"balancer target -> %s  target->name -> %s target->port -> %d target->backup ->%d target->weight -> %d target->max_fails ->%d target->fail_timeout -> %ld",
 			strval, target->name.c_str(), target->port, target->backup,
 			target->weight, target->max_fails, target->fail_timeout);

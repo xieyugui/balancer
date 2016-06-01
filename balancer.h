@@ -31,6 +31,7 @@
 #include <ts/ink_inet.h>
 #include <ts/experimental.h>
 
+#define PLUGIN_NAME "balancer"
 
 // Return the length of a string literal.
 template <int N>

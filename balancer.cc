@@ -32,8 +32,6 @@
 
 // Using ink_inet API is cheating, but I was too lazy to write new IPv6 address parsing routines ;)
 
-#define PLUGIN_NAME "balancer"
-
 static int arg_index = 0;
 
 
@@ -49,13 +47,13 @@ MakeBalancerInstance(const char *opt) {
 		const char *options = end ? end + 1 : NULL;
 		if (options) {
 			if (strchr(options, ',')) {
-				TSError("[balancer] Ignoring invalid round robin field '%s'", options);
+				TSError("[%s] Ignoring invalid round robin field '%s'", PLUGIN_NAME, options);
 			}
 			roundrobin->set_path(strdup(options));
 		}
 		return roundrobin;
 	} else {
-		TSError("[balancer] Invalid balancing policy '%.*s'", (int) len, opt);
+		TSError("[%s] Invalid balancing policy '%.*s'", PLUGIN_NAME,(int) len, opt);
 		return NULL;
 	}
 }
@@ -91,12 +89,12 @@ static TSReturnCode send_response_handle(TSHttpTxn txnp, BalancerTargetStatus *t
 		}
 
 		if(status > TS_HTTP_STATUS_NONE && targetstatus && balancer) {
-			TSDebug("balancer", "handle_response (): Get status %d, do something.",status);
+			TSDebug(PLUGIN_NAME, "handle_response (): Get status %d, do something.",status);
 			balancer->os_response_back_status(targetstatus->target_id, status);
 		}
 
 	} else {
-		TSDebug("balancer", " target.id == -1 or target_down  == 1!");
+		TSDebug(PLUGIN_NAME, " target.id == -1 or target_down  == 1!");
 		TSHttpTxnSetHttpRetStatus(txnp, TS_HTTP_STATUS_SOURCE_SERVICE_UNAVAILABLE);
 
 		TSHttpTxnErrorBodySet(txnp, TSstrdup("553 Source Service Unavailable!"), sizeof("553 Source Service Unavailable!") - 1, NULL);
@@ -116,7 +114,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	}
 
 	 if (TSHttpTxnCacheLookupStatusGet(txnp, &obj_status) == TS_ERROR) {
-	   TSError("[%s] Couldn't get cache status of object", __FUNCTION__);
+	   TSError("[%s]  [%s] Couldn't get cache status of object",PLUGIN_NAME, __FUNCTION__);
 	    return TS_ERROR;
 	 }
 	 TSDebug(PLUGIN_NAME, "look_up_handle  obj_status = %d\n",obj_status);
@@ -156,7 +154,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	 }
 
 	 TSHttpTxnHookAdd(txnp, TS_HTTP_SEND_RESPONSE_HDR_HOOK, contp);
-	 TSDebug("balancer", "add TS_HTTP_SEND_RESPONSE_HDR_HOOK");
+	 TSDebug(PLUGIN_NAME, "add TS_HTTP_SEND_RESPONSE_HDR_HOOK");
 
 	if (targetstatus && targetstatus->target_down && !targetstatus->is_down_check)
 		return TS_SUCCESS;
@@ -187,13 +185,13 @@ rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 		return TS_SUCCESS;
 	}
 	if(TSHttpTxnServerReqGet(txnp,&bufp,&hdr_loc)  != TS_SUCCESS ) {
-		TSError("couldn't retrieve request header");
+		TSError("[%s] couldn't retrieve request header",PLUGIN_NAME);
 		TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
 		return TS_SUCCESS;
 	}
 
 	if (TSHttpHdrUrlGet(bufp, hdr_loc, &url_loc) != TS_SUCCESS) {
-		TSError("couldn't retrieve request url");
+		TSError("[%s] couldn't retrieve request url", PLUGIN_NAME);
         TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
         TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
         return TS_SUCCESS;
@@ -201,7 +199,7 @@ rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
 
      old_path = TSUrlPathGet(bufp, url_loc, &len);
      if (!old_path) {
-    	 	 TSError("couldn't retrieve request path");
+    	 	 TSError("[%s] couldn't retrieve request path",PLUGIN_NAME);
          TSHandleMLocRelease(bufp, hdr_loc, url_loc);
          TSHandleMLocRelease(bufp, TS_NULL_MLOC, hdr_loc);
          TSHttpTxnReenable(txnp, TS_EVENT_HTTP_CONTINUE);
@@ -214,7 +212,7 @@ rewrite_send_request_path(TSHttpTxn txnp, BalancerTargetStatus *targetstatus)
      memcpy(new_path, add_path, add_len);
      memcpy(&new_path[add_len], old_path , len);
      if (TSUrlPathSet(bufp, url_loc, new_path, new_len) != TS_SUCCESS) {
-             TSError("balancer: Set new Path field '%.*s'", new_len, new_path);
+             TSError("[%s]: Set new Path field '%.*s'", PLUGIN_NAME,new_len, new_path);
      }
 //     TSDebug("balancer", "new path '%.*s'", new_len, new_path);
      TSHandleMLocRelease(bufp, hdr_loc, url_loc);
@@ -318,14 +316,14 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 		s_count ++;
 		balancer->push_target(target);
 		if (target->port) {
-			TSDebug("balancer", "added target -> %s:%u", target->name.c_str(), target->port);
+			TSDebug(PLUGIN_NAME, "added target -> %s:%u", target->name.c_str(), target->port);
 		} else {
-			TSDebug("balancer", "added target -> %s", target->name.c_str());
+			TSDebug(PLUGIN_NAME, "added target -> %s", target->name.c_str());
 		}
 	}
 
 	if(s_count == 0) {
-		TSDebug("balancer", "no target have create!");
+		TSDebug(PLUGIN_NAME, "no target have create!");
 		return TS_ERROR;
 	}
 	*instance = balancer;
@@ -333,7 +331,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 }
 
 void TSRemapDeleteInstance(void *instance) {
-	TSDebug("balancer", "Delete Instance BalancerInstance!");
+	TSDebug(PLUGIN_NAME, "Delete Instance BalancerInstance!");
 	static_cast<RoundRobinBalancer *>(instance)->release();
 }
 
@@ -354,7 +352,7 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 	const BalancerTarget *target = balancer->balance(txn, rri);
 
 	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target->name.data(),target->name.size());
-	TSDebug("balancer","balancer target.name -> %s target.port -> %d ", target->name.c_str(), target->port);
+	TSDebug(PLUGIN_NAME,"balancer target.name -> %s target.port -> %d ", target->name.c_str(), target->port);
 	if (target->port) {
 		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target->port);
 	}

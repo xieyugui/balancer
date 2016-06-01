@@ -29,12 +29,12 @@ public:
 
 	void hold() {
 	   ink_atomic_increment(&_ref_count, 1);
-//	   TSDebug("balancer","----------hold  _ref_count---------------%d",_ref_count);
+//	   TSDebug(PLUGIN_NAME,"----------hold  _ref_count---------------%d",_ref_count);
 	}
 
 	void release() {
 	   if (1 >= ink_atomic_decrement(&_ref_count, 1)) {
-//		   TSDebug("balancer","----------release  _ref_count---------------%d",_ref_count);
+//		   TSDebug(PLUGIN_NAME,"----------release  _ref_count---------------%d",_ref_count);
 		   delete this;
 	   }
 
