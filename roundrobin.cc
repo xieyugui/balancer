@@ -155,30 +155,19 @@ BalancerTarget * RoundRobinBalancer::get_down_timeout_peer(time_t now) {
 
 	t_len = targets_s.size();
 	for (i = 0; i < t_len; i++) {
-		if (!targets_s[i]->down)
-			return NULL;
 		if (targets_s[i]->down
-				&& (now - targets_s[i]->checked)
-						> (targets_s[i]->timeout_fails
-								* targets_s[i]->fail_timeout)) {
+				&& (now - targets_s[i]->checked) > (targets_s[i]->timeout_fails* targets_s[i]->fail_timeout)) {
 			targets_s[i]->checked = now;
-			check_peer = targets_s[i];
+			return targets_s[i];
 		}
 	}
-	if (check_peer)
-		return check_peer;
 
-	check_peer = NULL;
 	t_len = targets_b.size();
 	for (i = 0; i < t_len; i++) {
-		if (!targets_b[i]->down)
-			return NULL;
 		if (targets_b[i]->down
-				&& (now - targets_b[i]->checked)
-						> (targets_b[i]->timeout_fails
-								* targets_b[i]->fail_timeout)) {
+				&& (now - targets_b[i]->checked) > (targets_b[i]->timeout_fails * targets_b[i]->fail_timeout)) {
 			targets_b[i]->checked = now;
-			check_peer = targets_b[i];
+			return targets_b[i];
 		}
 	}
 
