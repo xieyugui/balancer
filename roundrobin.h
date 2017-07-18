@@ -43,7 +43,7 @@ public:
 	void push_target(BalancerTarget *target);
 
 	//获取一个后端
-	BalancerTarget *balance(TSHttpTxn, TSRemapRequestInfo *);
+	BalancerTarget *balance(bool follow_https);
 
 	//清除peer 的fails 和 timeout_fails状态
 	void clean_peer_status();
@@ -68,9 +68,10 @@ public:
 		return this->path;
 	}
 
-	void set_backend_tag(bool is_need, bool is_need_health_check) {
+	void set_backend_tag(bool is_need, bool is_need_health_check, bool is_follow_model) {
 		this->need_https_backend = is_need;
 		this->need_health_check = is_need_health_check;
+		this->follow_model = is_follow_model;
 	}
 
 	bool get_https_backend_tag() {
@@ -81,16 +82,21 @@ public:
 		return this->need_health_check;
 	}
 
-private:
-	std::vector<BalancerTarget *> targets_s; //主线路
+	bool is_need_follow_model() {
+		return this->follow_model;
+	}
 
-	std::vector<BalancerTarget *> targets_b; //备用线路
+private:
+	std::vector<BalancerTarget *> targets_s; //主线路   如果是follow模式  为http源
+
+	std::vector<BalancerTarget *> targets_b; //备用线路 如果是follow模式  为https源
 	uint peersS_number;
 	uint peersB_number;
 	unsigned next;
 	char *path;
 	bool need_https_backend;
 	bool need_health_check;
+	bool follow_model;
 	volatile int _ref_count;
 };
 

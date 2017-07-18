@@ -30,6 +30,8 @@ RoundRobinBalancer::RoundRobinBalancer() :
 	this->peersB_number = 0;
 	this->path = NULL;
 	this->need_https_backend = false;
+	this->need_health_check = false;
+	this->follow_model = false;
 }
 
 RoundRobinBalancer::~RoundRobinBalancer() {
@@ -57,18 +59,40 @@ RoundRobinBalancer::~RoundRobinBalancer() {
 }
 
 void RoundRobinBalancer::push_target(BalancerTarget *target) {
-	if (target->backup) {
-		this->targets_b.push_back(target);
-		this->peersB_number++;
+	if (this->follow_model) {
+		if (target->follow_https) {
+			this->targets_b.push_back(target);
+			this->peersB_number++;
+		} else {
+			this->targets_s.push_back(target);
+			this->peersS_number++;
+		}
 	} else {
-		this->targets_s.push_back(target);
-		this->peersS_number++;
+		if (target->backup) {
+			this->targets_b.push_back(target);
+			this->peersB_number++;
+		} else {
+			this->targets_s.push_back(target);
+			this->peersS_number++;
+		}
 	}
 }
 
 //获取一个后端
-BalancerTarget * RoundRobinBalancer::balance(TSHttpTxn, TSRemapRequestInfo *) {
+BalancerTarget * RoundRobinBalancer::balance(bool follow_https) {
 	BalancerTarget *peer;
+
+	if (this->follow_model) {
+		TSDebug(PLUGIN_NAME, "----------~RoundRobinBalancer---------------follow model -> return a target");
+		if (follow_https && !targets_b.empty()){
+			return targets_b[0];
+		}
+		if (targets_s.empty()) {
+			return targets_b[0];
+		}
+		return targets_s[0];
+	}
+
 
 	if (!this->get_health_check_tag()) {
 		goto roundrobin;
@@ -349,6 +373,7 @@ BalancerTarget *RoundRobinBalancer::MakeBalancerTarget(const char *strval) {
 	} else {
 		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
 		// 192.168.8.7:80,0,1,10,20   如果只有ip 后面几个参数都是默认值
+		// 192.168.8.7:80,0  如果后面只有一个,分割就认为是follow功能，0--http, 1--https回源
 		int target_array[4] = { 0, 1, 10, 20 };
 		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
 		uint s_count = 0;
@@ -380,6 +405,9 @@ BalancerTarget *RoundRobinBalancer::MakeBalancerTarget(const char *strval) {
 		target->weight = target_array[1];
 		target->max_fails = target_array[2];
 		target->fail_timeout = target_array[3];
+		if (s_count == 1) {
+			target->follow_https = target_array[0];
+		}
 	}
 
 	if (target->port > INT16_MAX) {

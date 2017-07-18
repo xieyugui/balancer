@@ -277,14 +277,17 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
 // One instance per remap.config invocation.
 //@pparam=--policy=roundrobin,26308ac61a2e9ea3cdc922/  @pparam=origin.xxx.net,0,1,3,10
 //@pparam=--https @pparam=--policy=roundrobin @pparam=--open  @pparam=xxx.xxx.net:443
+//@pparam=--follow @pparam=--policy=roundrobin @pparam=127.0.0.1,0 @pparam=xxx.xxx.net:443,1 如果后面只有一个,分割就认为是follow功能，0--http, 1--https回源
 TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 		char *errbuf, int errbuf_size) {
 	static const struct option longopt[] = { { const_cast<char *>("policy"),
-			required_argument, 0, 'p' }, { const_cast<char *>("https"),no_argument, 0, 's' }, { const_cast<char *>("open"),no_argument, 0, 'o' }, { 0, 0, 0, 0 } };
+			required_argument, 0, 'p' }, { const_cast<char *>("https"),no_argument, 0, 's' }, { const_cast<char *>("follow"),no_argument, 0, 'f' },
+			{ const_cast<char *>("open"),no_argument, 0, 'o' }, { 0, 0, 0, 0 } };
 
 	RoundRobinBalancer *balancer = NULL;
 	bool need_https_backend = false;
     bool need_health_check = false;
+    bool follow_model = false;
 
 	// The first two arguments are the "from" and "to" URL string. We need to
 	// skip them, but we also require that there be an option to masquerade as
@@ -307,6 +310,9 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
         case 'o':
             need_health_check = true;
             break;
+        case 'f':
+        	follow_model = true;
+            break;
 		case -1:
 			break;
 		default:
@@ -325,7 +331,7 @@ TSReturnCode TSRemapNewInstance(int argc, char *argv[], void **instance,
 		return TS_ERROR;
 	}
 
-	balancer->set_backend_tag(need_https_backend, need_health_check);
+	balancer->set_backend_tag(need_https_backend, need_health_check, follow_model);
 	// Pick up the remaining options as balance targets.
 	uint s_count = 0;
 	int i;
@@ -357,7 +363,10 @@ void TSRemapDeleteInstance(void *instance) {
 TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *rri) {
 	TSCont txn_contp;
 	int method_len;
-	const char *method;
+	int scheme_len;
+	bool follow_https;
+	const char *method, *scheme;
+	TSMLoc scheme_field;
 
 	method = TSHttpHdrMethodGet(rri->requestBufp, rri->requestHdrp, &method_len);
 	if (method == TS_HTTP_METHOD_PURGE) {
@@ -368,12 +377,37 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 		return TSREMAP_NO_REMAP;
 	}
 	balancer->hold();
-	const BalancerTarget *target = balancer->balance(txn, rri);
+
+	// get X-Forwarded-Proto header
+	// X-Forwarded-Proto: http/https
+	follow_https = false;
+	if (balancer->is_need_follow_model()) {
+		scheme_field = TSMimeHdrFieldFind(rri->requestBufp, rri->requestHdrp,"X-Forwarded-Proto", 17);
+		if (scheme_field) {
+			scheme = TSMimeHdrFieldValueStringGet(rri->requestBufp, rri->requestHdrp,scheme_field, -1, &scheme_len);
+			size_t b_len = sizeof("https") - 1;
+			if (scheme && (strncasecmp(scheme, "https", b_len) == 0)) { //https
+				follow_https = true;
+				TSDebug(PLUGIN_NAME,"balancer follow models https!");
+			} else {
+				TSDebug(PLUGIN_NAME,"balancer follow models http!");
+			}
+			TSMimeHdrFieldDestroy(rri->requestBufp, rri->requestHdrp, scheme_field);
+			TSHandleMLocRelease(rri->requestBufp, rri->requestHdrp, scheme_field);
+		}
+	}
+	const BalancerTarget *target = balancer->balance(follow_https);
 
 	TSUrlHostSet(rri->requestBufp, rri->requestUrl, target->name.data(),target->name.size());
 	TSDebug(PLUGIN_NAME,"balancer target.name -> %s target.port -> %d ", target->name.c_str(), target->port);
 	if (target->port) {
 		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target->port);
+	}
+
+	if (balancer->is_need_follow_model()) {
+		TSDebug(PLUGIN_NAME,"balancer follow models over!");
+		balancer->release();
+		return TSREMAP_DID_REMAP;
 	}
 
     if (!balancer->get_health_check_tag()) {

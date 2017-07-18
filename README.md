@@ -5,7 +5,9 @@
      https://github.com/xieyugui/balancer.git
 
 在roundrobin 模式下新增 backup、weight、max_fails、fail_timeout ,以及add path和开启https回源的功能, 
-  当添加--open参数时, backup、weight、max_fails、fail_timeout等参数才会生效，不然只有默认轮询功能：
+  当添加--open参数时, backup、weight、max_fails、fail_timeout等参数才会生效，不然只有默认轮询功能，
+  当添加--follow参数时，则启用回源跟随功能，参数回源地址后后面跟(,0/1 #0--http, 1--https回源)，
+  	目前只支持单个地址回源模式，不支持轮询以及健康检测功能。
 
 #### backup=number
     marks the server as a backup server. It will be passed requests when the primary servers are 
@@ -30,6 +32,8 @@
     
 ### For example:
     map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10
+    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,1,1,3,10
+    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--follow @pparam=one.bar.com:80,0 @pparam=two.bar.com,1
  
 ### Add path:
     map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10 <br />

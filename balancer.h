@@ -62,9 +62,10 @@ struct BalancerTarget {
   uint timeout_fails;//当停用fail_timeout后，仍然是失败时+1,最大次数不能超过100
   time_t accessed; //检测失败时间，用于计算超时
   time_t checked;
+  uint follow_https; //回源跟随功能---是否为https回源地址
 
   BalancerTarget():id(0),name(""),port(0),weight(1),effective_weight(1),current_weight(0),max_fails(10),
-		  fail_timeout(30),down(0),backup(0),fails(0),timeout_fails(1),accessed(0),checked(0){
+		  fail_timeout(30),down(0),backup(0),fails(0),timeout_fails(1),accessed(0),checked(0),follow_https(0){
   }
 
   ~BalancerTarget() {
