@@ -31,11 +31,11 @@
     the server will be considered unavailable. By default, the parameter is set to 10 seconds.
     
 ### For example:
-    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10
-    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,1,1,3,10
+    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,5,30 @pparam=two.bar.com,0,1,5,30
+    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--https @pparam=--open @pparam=one.bar.com:80,0,1,5,30 @pparam=two.bar.com,1,1,5,30
     map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin @pparam=--follow @pparam=one.bar.com:80,0 @pparam=two.bar.com,1
  
 ### Add path:
-    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=--open @pparam=one.bar.com:80,0,1,3,10 @pparam=two.bar.com,0,1,3,10 <br />
+    map http://foo.com http://foo.com  @plugin=balancer.so @pparam=--policy=roundrobin,0/ @pparam=--open @pparam=one.bar.com:80,0,1,5,30 @pparam=two.bar.com,0,1,5,30 <br />
     if client request http://cdnxxx.com/1.jpg then ATS will back to the source server request http://cdnxxx.com/0/1.jpg
 

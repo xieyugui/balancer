@@ -372,9 +372,9 @@ BalancerTarget *RoundRobinBalancer::MakeBalancerTarget(const char *strval) {
 
 	} else {
 		//格式ip:port,是否为备用线路,权重,最大失败次数,禁用时间
-		// 192.168.8.7:80,0,1,10,20   如果只有ip 后面几个参数都是默认值
+		// 192.168.8.7:80,0,1,5,30   如果只有ip 后面几个参数都是默认值
 		// 192.168.8.7:80,0  如果后面只有一个,分割就认为是follow功能，0--http, 1--https回源
-		int target_array[4] = { 0, 1, 10, 20 };
+		int target_array[4] = { 0, 1, 5, 30 };
 		uint a_count = sizeof(target_array) / sizeof(target_array[0]);
 		uint s_count = 0;
 		const char *comma = strrchr(strval, ':');
