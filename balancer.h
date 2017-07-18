@@ -79,6 +79,7 @@ struct BalancerTargetStatus {
 	uint target_down;
 	uint is_down_check;
 	int object_status;
+	bool follow_https;
 };
 
 #endif /* BALANCER_H_29177589_32F1_4D93_AE4F_1E140EDCC273 */

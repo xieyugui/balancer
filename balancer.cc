@@ -126,7 +126,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 	 }
 
 	 //修改成https请求
-	 if(balancer && balancer->get_https_backend_tag()) {
+	 if( (balancer && balancer->is_need_follow_model() && targetstatus && targetstatus->follow_https) || (balancer && balancer->get_https_backend_tag()) ) {
 		TSMBuffer req_bufp;
 		TSMLoc req_loc;
 		TSMLoc url_loc;
@@ -140,6 +140,7 @@ static TSReturnCode look_up_handle (TSCont contp, TSHttpTxn txnp, BalancerTarget
 		  TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
 		  return TS_ERROR;
 		}
+		TSDebug(PLUGIN_NAME, "look_up_handle http modify to https\n");
 		TSUrlSchemeSet(req_bufp, url_loc,TS_URL_SCHEME_HTTPS,TS_URL_LEN_HTTPS);
 		TSHandleMLocRelease(req_bufp, req_loc, url_loc);
 		TSHandleMLocRelease(req_bufp, TS_NULL_MLOC, req_loc);
@@ -239,7 +240,7 @@ static void balancer_handler(TSCont contp, TSEvent event, void *edata) {
     RoundRobinBalancer *balancer = (RoundRobinBalancer *)TSHttpTxnArgGet((TSHttpTxn)txnp, arg_index);
     BalancerTargetStatus *targetstatus;
     targetstatus = NULL;
-    if (balancer && balancer->get_health_check_tag()) {
+    if (balancer && (balancer->get_health_check_tag() || balancer->is_need_follow_model())) {
         targetstatus = (struct BalancerTargetStatus *) TSContDataGet(contp);
     }
 
@@ -404,13 +405,7 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 		TSUrlPortSet(rri->requestBufp, rri->requestUrl, target->port);
 	}
 
-	if (balancer->is_need_follow_model()) {
-		TSDebug(PLUGIN_NAME,"balancer follow models over!");
-		balancer->release();
-		return TSREMAP_DID_REMAP;
-	}
-
-    if (!balancer->get_health_check_tag()) {
+    if (!balancer->is_need_follow_model() && !balancer->get_health_check_tag()) {
         if (NULL == (txn_contp = TSContCreate((TSEventFunc) balancer_handler, NULL))) {
             TSError("[%s] TSContCreate(): failed to create the transaction handler continuation.", PLUGIN_NAME);
             balancer->release();
@@ -428,6 +423,7 @@ TSRemapStatus TSRemapDoRemap(void *instance, TSHttpTxn txn,TSRemapRequestInfo *r
 	targetstatus->target_down = target->down;
 	targetstatus->is_down_check = false;//是否需要down check
 	targetstatus->object_status = -1;// < TS_CACHE_LOOKUP_MISS
+	targetstatus->follow_https = follow_https;
 
 	if (target->down ) {
 		time_t now = TShrtime() / TS_HRTIME_SECOND;
