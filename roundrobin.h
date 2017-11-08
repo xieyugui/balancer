@@ -5,8 +5,8 @@
  *      Author: xie
  */
 
-#ifndef PLUGINS_EXPERIMENTAL_BALANCER_ROUNDROBIN_H_
-#define PLUGINS_EXPERIMENTAL_BALANCER_ROUNDROBIN_H_
+#ifndef BALANCER_ROUNDROBIN_H
+#define BALANCER_ROUNDROBIN_H
 
 #include <stdlib.h>
 #include <string.h>
@@ -16,34 +16,29 @@
 #include "balancer.h"
 
 
-
-#define MAX_FAIL_TIME  30
-#define FAIL_STATUS 500
-#define OS_SINGLE 1
-
-class RoundRobinBalancer {
+class RoundRobinBalancer : public BalancerInstance {
 
 public:
-	RoundRobinBalancer();
+	RoundRobinBalancer(BalancerType b_type);
 	~RoundRobinBalancer();
 
 	void hold() {
-	   ink_atomic_increment(&_ref_count, 1);
+		ink_atomic_increment(&_ref_count, 1);
 //	   TSDebug(PLUGIN_NAME,"----------hold  _ref_count---------------%d",_ref_count);
 	}
 
 	void release() {
-	   if (1 >= ink_atomic_decrement(&_ref_count, 1)) {
+		if (1 >= ink_atomic_decrement(&_ref_count, 1)) {
 //		   TSDebug(PLUGIN_NAME,"----------release  _ref_count---------------%d",_ref_count);
-		   delete this;
-	   }
+			delete this;
+		}
 
 	}
 
 	void push_target(BalancerTarget *target);
 
 	//获取一个后端
-	BalancerTarget *balance(bool follow_https);
+	BalancerTarget *balance(TSHttpTxn, TSRemapRequestInfo *);
 
 	//清除peer 的fails 和 timeout_fails状态
 	void clean_peer_status();
@@ -58,7 +53,7 @@ public:
 	//更改后端状态,后端返回5xx，就认为失败
 	TSReturnCode os_response_back_status(uint target_id, TSHttpStatus status);
 
-	BalancerTarget * MakeBalancerTarget(const char *strval);
+	BalancerTarget * make_balancer_target(const char *strval);
 
 	void set_path(char *path) {
 		this->path = path;
@@ -68,10 +63,9 @@ public:
 		return this->path;
 	}
 
-	void set_backend_tag(bool is_need, bool is_need_health_check, bool is_follow_model) {
+	void set_backend_tag(bool is_need, bool is_need_health_check) {
 		this->need_https_backend = is_need;
 		this->need_health_check = is_need_health_check;
-		this->follow_model = is_follow_model;
 	}
 
 	bool get_https_backend_tag() {
@@ -82,24 +76,52 @@ public:
 		return this->need_health_check;
 	}
 
-	bool is_need_follow_model() {
-		return this->follow_model;
-	}
+	BalancerType get_balancer_type() { return this->b_type; }
 
 private:
-	std::vector<BalancerTarget *> targets_s; //主线路   如果是follow模式  为http源
+	std::vector<BalancerTarget *> targets_s; //主线路
 
-	std::vector<BalancerTarget *> targets_b; //备用线路 如果是follow模式  为https源
+	std::vector<BalancerTarget *> targets_b; //备用线路
 	uint peersS_number;
 	uint peersB_number;
 	unsigned next;
 	char *path;
 	bool need_https_backend;
 	bool need_health_check;
-	bool follow_model;
+    BalancerType b_type;
 	volatile int _ref_count;
 };
 
+BalancerInstance *
+MakeRoundRobinBalancer(const char *options, BalancerType b_type)
+{
+	RoundRobinBalancer *balancer = new RoundRobinBalancer(b_type);
+//	char *opt;
+//	char *tmp;
+
+	TSDebug("balancer", "making round robin balancer with options '%s'", options);
+
+//	if (options) {
+//		options = tmp = strdup(options);
+//		while ((opt = strsep(&tmp, ",")) != nullptr) {
+//			TSError("[balancer] Ignoring invalid round robin field '%s'", opt);
+//		}
+//
+//		free((void *)options);
+//	}
+
+    balancer->hold();
+//    const char *options = end ? end + 1 : NULL;
+    if (options) {
+        if (strchr(options, ',')) {
+            TSError("[%s] Ignoring invalid round robin field '%s'", PLUGIN_NAME, options);
+        }
+        balancer->set_path(strdup(options));
+        free((void *)options);
+    }
+
+	return balancer;
+}
 
 
-#endif /* PLUGINS_EXPERIMENTAL_BALANCER_ROUNDROBIN_H_ */
+#endif /* BALANCER_ROUNDROBIN_H */

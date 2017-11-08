@@ -33,44 +33,53 @@
 
 #define PLUGIN_NAME "balancer"
 
+#define MAX_FAIL_TIME  30
+#define FAIL_STATUS 500
+#define OS_SINGLE 1
+
+typedef enum {
+	BALANCER_ROUND = 0,
+	BALANCER_HEADER = 1,
+} BalancerType;
+
+
 // Return the length of a string literal.
 template <int N>
 unsigned
 lengthof(const char(&)[N])
 {
-  return N - 1;
+	return N - 1;
 }
 
 
 struct BalancerTarget {
-  uint id;
-  std::string name;
-  uint port;
+	uint id;
+	std::string name;
+	uint port;
 
-  //add by daemon.xie
-  uint weight;  //配置的权重
-  int effective_weight;
-  int current_weight; //当前权重，ats 会在运行过程中调整次权重
+	//add by daemon.xie
+	uint weight;  //配置的权重
+	int effective_weight;
+	int current_weight; //当前权重，ats 会在运行过程中调整次权重
 
-  uint max_fails; //最大失败次数
+	uint max_fails; //最大失败次数
 
-  time_t fail_timeout; //失败后，不再使用的时间
-  uint down; //指定某个后端是否挂了
-  uint backup;  //是否为备份线路
+	time_t fail_timeout; //失败后，不再使用的时间
+	uint down; //指定某个后端是否挂了
+	uint backup;  //是否为备份线路
 
-  uint fails; //已尝试失败次数
-  uint timeout_fails;//当停用fail_timeout后，仍然是失败时+1,最大次数不能超过100
-  time_t accessed; //检测失败时间，用于计算超时
-  time_t checked;
-  uint follow_https; //回源跟随功能---是否为https回源地址
+	uint fails; //已尝试失败次数
+	uint timeout_fails;//当停用fail_timeout后，仍然是失败时+1,最大次数不能超过100
+	time_t accessed; //检测失败时间，用于计算超时
+	time_t checked;
 
-  BalancerTarget():id(0),name(""),port(0),weight(1),effective_weight(1),current_weight(0),max_fails(10),
-		  fail_timeout(30),down(0),backup(0),fails(0),timeout_fails(1),accessed(0),checked(0),follow_https(0){
-  }
+	BalancerTarget():id(0),name(""),port(0),weight(1),effective_weight(1),current_weight(0),max_fails(10),
+					 fail_timeout(30),down(0),backup(0),fails(0),timeout_fails(1),accessed(0),checked(0){
+	}
 
-  ~BalancerTarget() {
-	  name = "";
-  }
+	~BalancerTarget() {
+		name = "";
+	}
 };
 
 //用于存储target 状态，以备源站返回code 的做健康负载处理，new  free
@@ -79,7 +88,24 @@ struct BalancerTargetStatus {
 	uint target_down;
 	uint is_down_check;
 	int object_status;
-	bool follow_https;
 };
+
+struct BalancerInstance {
+	virtual ~BalancerInstance() {}
+	virtual void push_target(BalancerTarget *) = 0;
+	virtual BalancerTarget *balance(TSHttpTxn, TSRemapRequestInfo *) = 0;
+	virtual void set_backend_tag(bool , bool ) = 0;
+	virtual BalancerTarget *make_balancer_target(const char *) = 0;
+	virtual void release() = 0;
+	virtual void hold() = 0;
+    virtual bool get_https_backend_tag() = 0;
+    virtual char *get_path() const = 0;
+    virtual bool get_health_check_tag() = 0;
+    virtual TSReturnCode os_response_back_status(uint , TSHttpStatus ) = 0;
+	virtual BalancerType get_balancer_type()  = 0;
+};
+
+BalancerInstance *MakeHeaderBalancer(const char *, BalancerType);
+BalancerInstance *MakeRoundRobinBalancer(const char *, BalancerType);
 
 #endif /* BALANCER_H_29177589_32F1_4D93_AE4F_1E140EDCC273 */
